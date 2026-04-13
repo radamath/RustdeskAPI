@@ -55,6 +55,13 @@ def _migrate_schema():
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
         except sqlite3.OperationalError:
             pass
+
+    try:
+        conn.execute(
+            "DELETE FROM heartbeat WHERE id GLOB '*[^0-9]*'"
+        )
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 

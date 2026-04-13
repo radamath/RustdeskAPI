@@ -14,6 +14,14 @@ bp = Blueprint("users", __name__, url_prefix="/admin/api/users")
 
 # ── Sync helper ──────────────────────────────────────────────────────
 
+def _is_valid_peer_id(pid):
+    """RustDesk peer IDs are short numeric strings (e.g. '190794556').
+    Base64 UUIDs and other internal IDs should be excluded."""
+    if not pid:
+        return False
+    return pid.isdigit() and len(pid) <= 15
+
+
 def sync_admin_address_books(exclude_peer_id=None):
     """Ensure every admin-role RustdeskUser has all system peers in their
     default address book.  Called on heartbeat (new peer) and role change."""
@@ -23,6 +31,8 @@ def sync_admin_address_books(exclude_peer_id=None):
 
     system_peers = []
     for rp in all_peers_raw:
+        if not _is_valid_peer_id(rp["id"]):
+            continue
         info = rp.get("info", {})
         entry = {
             "id": rp["id"],
@@ -37,6 +47,8 @@ def sync_admin_address_books(exclude_peer_id=None):
         system_peers.append(entry)
 
     for hb_id, hb in heartbeats.items():
+        if not _is_valid_peer_id(hb_id):
+            continue
         if not any(p["id"] == hb_id for p in system_peers):
             system_peers.append({
                 "id": hb_id,
@@ -56,16 +68,22 @@ def sync_admin_address_books(exclude_peer_id=None):
             db.session.flush()
 
         existing = json.loads(book.peers_json or "[]")
+
+        cleaned = [
+            p for p in existing
+            if _is_valid_peer_id(p.get("id") if isinstance(p, dict) else p)
+        ]
+
         existing_ids = {
-            (p.get("id") if isinstance(p, dict) else p) for p in existing
+            (p.get("id") if isinstance(p, dict) else p) for p in cleaned
         }
 
-        merged = list(existing)
+        merged = list(cleaned)
         for sp in system_peers:
             if sp["id"] not in existing_ids:
                 merged.append(sp)
 
-        if len(merged) != len(existing):
+        if len(merged) != len(existing) or len(cleaned) != len(existing):
             book.peers_json = json.dumps(merged)
 
     db.session.commit()

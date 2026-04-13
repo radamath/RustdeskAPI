@@ -99,7 +99,9 @@ def logout():
 @bp.route("/heartbeat", methods=["POST"])
 def heartbeat():
     data = request.get_json(silent=True) or {}
-    uid = data.get("uuid", "") or data.get("id", "")
+    peer_id = data.get("id", "")
+    peer_uuid = data.get("uuid", "")
+    uid = peer_id or peer_uuid
     if uid:
         now = datetime.now(timezone.utc)
         client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
@@ -110,7 +112,7 @@ def heartbeat():
             if (now - hb.last_seen).total_seconds() > 30:
                 hb.last_seen = now
         else:
-            hb = Heartbeat(id=uid, uuid=uid, ip=client_ip, last_seen=now)
+            hb = Heartbeat(id=uid, uuid=peer_uuid or uid, ip=client_ip, last_seen=now)
             db.session.add(hb)
         db.session.commit()
 
