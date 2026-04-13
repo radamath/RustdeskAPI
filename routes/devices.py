@@ -21,6 +21,50 @@ def _clean_ip(raw):
     return s
 
 
+def _is_valid_peer_id(pid):
+    if not pid:
+        return False
+    return pid.isdigit() and len(pid) <= 15
+
+
+def _enrich_peer(p, hb, tag, threshold):
+    """Add heartbeat / tag data to a peer dict."""
+    if hb:
+        p["local_ip"] = hb.local_ip or ""
+        p["global_ip"] = _clean_ip(hb.ip)
+        p.setdefault("hostname", hb.hostname or "")
+        p.setdefault("platform", hb.os_info or "")
+        p["version"] = hb.version or ""
+        try:
+            ls = hb.last_seen.replace(tzinfo=None) if hb.last_seen and hb.last_seen.tzinfo else hb.last_seen
+            p["online"] = ls >= threshold if ls else False
+        except Exception:
+            p["online"] = False
+        p["last_seen"] = hb.last_seen.isoformat() if hb.last_seen else None
+    else:
+        p.setdefault("local_ip", "")
+        p.setdefault("global_ip", "")
+        p["online"] = False
+        p.setdefault("last_seen", None)
+
+    info = p.get("info", {})
+    if not p.get("hostname") and info.get("hostname"):
+        p["hostname"] = info["hostname"]
+    if not p.get("platform") and info.get("os"):
+        p["platform"] = info["os"]
+    if not p.get("global_ip") and info.get("ip"):
+        p["global_ip"] = _clean_ip(info["ip"])
+
+    p["alias"] = tag.alias if tag else p.get("alias", "")
+    p["tags"] = json.loads(tag.tags) if tag else p.get("tags", [])
+    p["notes"] = tag.notes if tag else p.get("notes", "")
+    p["group_id"] = tag.group_id if tag else p.get("group_id")
+
+    p.setdefault("hostname", "")
+    p.setdefault("platform", "")
+    return p
+
+
 @bp.route("", methods=["GET"])
 @admin_required
 def list_devices():
@@ -28,57 +72,46 @@ def list_devices():
     per_page = request.args.get("per_page", 20, type=int)
     search = request.args.get("search", "")
 
-    peers, total = rustdesk_db.get_all_peers(search=search, page=page, per_page=per_page)
+    rd_peers, _ = rustdesk_db.get_all_peers(search=search, page=1, per_page=999999)
+    rd_ids = {p["id"] for p in rd_peers}
 
-    hb_ids = [p["id"] for p in peers]
-    hb_map = {}
-    if hb_ids:
-        for hb in Heartbeat.query.filter(Heartbeat.id.in_(hb_ids)).all():
-            hb_map[hb.id] = hb
+    all_heartbeats = Heartbeat.query.all()
+    hb_map = {hb.id: hb for hb in all_heartbeats}
 
-    tags_map = {t.peer_id: t for t in PeerTag.query.filter(PeerTag.peer_id.in_(hb_ids)).all()} if hb_ids else {}
+    hb_only_peers = []
+    for hb in all_heartbeats:
+        if hb.id not in rd_ids and _is_valid_peer_id(hb.id):
+            if search and search.lower() not in hb.id.lower() and search.lower() not in (hb.hostname or "").lower():
+                continue
+            hb_only_peers.append({
+                "id": hb.id,
+                "uuid": "",
+                "created_at": None,
+                "user": "",
+                "status": 0,
+                "note": "",
+                "info": {},
+            })
+
+    all_peers = rd_peers + hb_only_peers
+    total = len(all_peers)
+
+    start = (page - 1) * per_page
+    page_peers = all_peers[start:start + per_page]
+
+    all_ids = [p["id"] for p in page_peers]
+    tags_map = {t.peer_id: t for t in PeerTag.query.filter(PeerTag.peer_id.in_(all_ids)).all()} if all_ids else {}
 
     now_naive = datetime.utcnow()
     threshold = now_naive - timedelta(minutes=5)
 
-    for p in peers:
+    result = []
+    for p in page_peers:
         hb = hb_map.get(p["id"])
-        if hb:
-            p["local_ip"] = hb.local_ip or ""
-            p["global_ip"] = _clean_ip(hb.ip)
-            p["hb_hostname"] = hb.hostname or ""
-            p["os_info"] = hb.os_info or ""
-            p["version"] = hb.version or ""
-            try:
-                ls = hb.last_seen.replace(tzinfo=None) if hb.last_seen and hb.last_seen.tzinfo else hb.last_seen
-                p["online"] = ls >= threshold if ls else False
-            except Exception:
-                p["online"] = False
-            p["last_seen"] = hb.last_seen.isoformat() if hb.last_seen else None
-        else:
-            p["local_ip"] = ""
-            p["global_ip"] = _clean_ip(p.get("ip", "") or (p.get("info", {}).get("ip", "")))
-            p["online"] = False
-            p["last_seen"] = None
-            p["hb_hostname"] = ""
-
-        info = p.get("info", {})
-        p["hostname"] = info.get("hostname", "") or p.get("hb_hostname", "")
-        p["platform"] = info.get("os", "") or p.get("os_info", "")
-
-        if not p["global_ip"] and info.get("ip"):
-            p["global_ip"] = _clean_ip(info["ip"])
-
         tag = tags_map.get(p["id"])
-        p["alias"] = tag.alias if tag else ""
-        p["tags"] = json.loads(tag.tags) if tag else []
-        p["notes"] = tag.notes if tag else ""
-        p["group_id"] = tag.group_id if tag else None
+        result.append(_enrich_peer(p, hb, tag, threshold))
 
-        p.pop("hb_hostname", None)
-        p.pop("os_info", None)
-
-    return jsonify({"data": peers, "total": total, "page": page, "per_page": per_page})
+    return jsonify({"data": result, "total": total, "page": page, "per_page": per_page})
 
 
 @bp.route("/<peer_id>", methods=["GET"])
