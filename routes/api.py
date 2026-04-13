@@ -183,13 +183,12 @@ def ab_get():
         return jsonify({"error": "Unauthorized"}), 401
     book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
     if not book:
-        return jsonify({"data": {"peers": [], "tags": []}})
-    return jsonify({
-        "data": {
-            "peers": json.loads(book.peers_json or "[]"),
-            "tags": json.loads(book.tags_json or "[]"),
-        }
-    })
+        return jsonify({"data": json.dumps({"peers": [], "tags": []})})
+    ab_obj = {
+        "peers": json.loads(book.peers_json or "[]"),
+        "tags": json.loads(book.tags_json or "[]"),
+    }
+    return jsonify({"data": json.dumps(ab_obj)})
 
 
 @bp.route("/ab", methods=["POST"])
@@ -198,7 +197,14 @@ def ab_update():
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
     data = request.get_json(silent=True) or {}
-    ab_data = data.get("data", data)
+    raw = data.get("data", data)
+    if isinstance(raw, str):
+        try:
+            ab_data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            ab_data = {}
+    else:
+        ab_data = raw
 
     book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
     if not book:
@@ -220,14 +226,13 @@ def ab_personal():
         return jsonify({"error": "Unauthorized"}), 401
     book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
     if not book:
-        return jsonify({"data": {"peers": [], "tags": [], "guid": ""}})
-    return jsonify({
-        "data": {
-            "guid": book.guid,
-            "peers": json.loads(book.peers_json or "[]"),
-            "tags": json.loads(book.tags_json or "[]"),
-        }
-    })
+        return jsonify({"data": json.dumps({"peers": [], "tags": [], "guid": ""})})
+    ab_obj = {
+        "guid": book.guid,
+        "peers": json.loads(book.peers_json or "[]"),
+        "tags": json.loads(book.tags_json or "[]"),
+    }
+    return jsonify({"data": json.dumps(ab_obj)})
 
 
 @bp.route("/ab/settings", methods=["POST"])
