@@ -59,6 +59,7 @@ const API = {
   createUser(data) { return this.post('/admin/api/users', data); },
   updateUser(id, data) { return this.put(`/admin/api/users/${id}`, data); },
   deleteUser(id) { return this.del(`/admin/api/users/${id}`); },
+  userAddressBook(id) { return this.get(`/admin/api/users/${id}/address-book`); },
 
   // Groups
   groups() { return this.get('/admin/api/groups'); },

@@ -104,6 +104,7 @@ def heartbeat():
         now = datetime.now(timezone.utc)
         client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
         hb = db.session.get(Heartbeat, uid)
+        is_new = hb is None
         if hb:
             hb.ip = client_ip
             if (now - hb.last_seen).total_seconds() > 30:
@@ -112,6 +113,13 @@ def heartbeat():
             hb = Heartbeat(id=uid, uuid=uid, ip=client_ip, last_seen=now)
             db.session.add(hb)
         db.session.commit()
+
+        if is_new:
+            try:
+                from routes.users import sync_admin_address_books
+                sync_admin_address_books()
+            except Exception:
+                pass
     return jsonify({})
 
 

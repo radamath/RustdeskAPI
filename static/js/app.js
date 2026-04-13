@@ -367,18 +367,25 @@ Pages.users = async (el) => {
     el.appendChild(searchBar('Kullanıcı ara...', (v) => { search = v; page = 1; load(); }));
 
     const table = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl overflow-hidden' });
-    table.innerHTML = '<div class="grid grid-cols-6 gap-4 px-5 py-3 border-b border-slate-700 text-xs font-semibold text-slate-400 uppercase tracking-wider"><span>Kullanıcı</span><span>E-posta</span><span>Grup</span><span>Durum</span><span>Kayıt</span><span>İşlem</span></div>';
+    table.innerHTML = '<div class="grid grid-cols-7 gap-4 px-5 py-3 border-b border-slate-700 text-xs font-semibold text-slate-400 uppercase tracking-wider"><span>Kullanıcı</span><span>Rol</span><span>E-posta</span><span>Adres Defteri</span><span>Durum</span><span>Kayıt</span><span>İşlem</span></div>';
 
     for (const u of users) {
-      const row = h('div', { className: 'grid grid-cols-6 gap-4 px-5 py-3 table-row border-b border-slate-700/50 items-center text-sm' });
+      const roleBadge = u.role === 'admin' ? 'badge badge-yellow' : 'badge badge-blue';
+      const roleLabel = u.role === 'admin' ? 'Admin' : 'Kullanıcı';
+
+      const row = h('div', { className: 'grid grid-cols-7 gap-4 px-5 py-3 table-row border-b border-slate-700/50 items-center text-sm cursor-pointer hover:bg-slate-700/50 transition-colors', onclick: () => viewUserAB(u) });
       row.appendChild(h('span', { className: 'text-white font-medium' }, u.username));
+      row.appendChild(h('span', {}, h('span', { className: roleBadge }, roleLabel)));
       row.appendChild(h('span', { className: 'text-slate-400' }, u.email || '-'));
-      row.appendChild(h('span', { className: 'text-slate-400' }, u.group_name || '-'));
+      const abInfo = h('span', { className: 'flex items-center gap-1' });
+      abInfo.appendChild(h('span', { className: 'badge badge-blue' }, String(u.ab_peer_count || 0)));
+      abInfo.appendChild(h('span', { className: 'text-slate-500 text-xs' }, 'cihaz'));
+      row.appendChild(abInfo);
       row.appendChild(h('span', {}, h('span', { className: u.status === 1 ? 'badge badge-green' : 'badge badge-red' }, u.status === 1 ? 'Aktif' : 'Devre Dışı')));
       row.appendChild(h('span', { className: 'text-slate-400' }, formatDate(u.created_at)));
       const actions = h('div', { className: 'flex gap-1' });
-      actions.appendChild(h('button', { className: 'btn btn-ghost text-xs', onclick: () => editUser(u) }, 'Düzenle'));
-      actions.appendChild(h('button', { className: 'btn btn-danger text-xs', onclick: () => deleteUser(u) }, 'Sil'));
+      actions.appendChild(h('button', { className: 'btn btn-ghost text-xs', onclick: (e) => { e.stopPropagation(); editUser(u); } }, 'Düzenle'));
+      actions.appendChild(h('button', { className: 'btn btn-danger text-xs', onclick: (e) => { e.stopPropagation(); deleteUser(u); } }, 'Sil'));
       row.appendChild(actions);
       table.appendChild(row);
     }
@@ -389,12 +396,80 @@ Pages.users = async (el) => {
     el.appendChild(pagination(page, total, 20, (p) => { page = p; load(); }));
   }
 
+  async function viewUserAB(u) {
+    const data = await API.userAddressBook(u.id);
+    const body = h('div', { className: 'space-y-4' });
+
+    const infoRow = h('div', { className: 'flex items-center gap-3 text-sm' });
+    const roleBadge = u.role === 'admin' ? 'badge badge-yellow' : 'badge badge-blue';
+    const roleLabel = u.role === 'admin' ? 'Admin' : 'Kullanıcı';
+    infoRow.appendChild(h('span', { className: roleBadge }, roleLabel));
+    if (u.role === 'admin') {
+      infoRow.appendChild(h('span', { className: 'text-slate-500 text-xs italic' }, 'Tüm sistem cihazları otomatik eklenir'));
+    }
+    body.appendChild(infoRow);
+
+    const peerSection = h('div', { className: 'space-y-2' });
+    peerSection.appendChild(h('h4', { className: 'text-sm font-semibold text-slate-300' }, `Adres Defteri (${data.peers?.length || 0} cihaz)`));
+
+    if (data.peers?.length) {
+      const peerTable = h('div', { className: 'max-h-80 overflow-y-auto rounded-lg border border-slate-700' });
+      const peerHeader = h('div', { className: 'grid grid-cols-12 gap-2 px-4 py-2 bg-slate-700/60 text-xs font-semibold text-slate-400 uppercase tracking-wider sticky top-0' });
+      peerHeader.appendChild(h('span', { className: 'col-span-1' }, ''));
+      peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'ID'));
+      peerHeader.appendChild(h('span', { className: 'col-span-3' }, 'Bilgisayar Adı'));
+      peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'IP Adresi'));
+      peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'Platform'));
+      peerHeader.appendChild(h('span', { className: 'col-span-2 text-right' }, 'İşlem'));
+      peerTable.appendChild(peerHeader);
+
+      for (const p of data.peers) {
+        const pid = typeof p === 'string' ? p : (p.id || '');
+        const hostname = (typeof p === 'object' ? p.hostname : '') || '-';
+        const ip = (typeof p === 'object' ? p.ip : '') || '-';
+        const platform = (typeof p === 'object' ? (p.platform || '') : '') || '-';
+        const online = typeof p === 'object' ? p.online : false;
+
+        const peerRow = h('div', { className: 'grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-slate-700/50 items-center text-sm hover:bg-slate-700/30 transition-colors' });
+        const statusDot = h('span', { className: `inline-block w-2.5 h-2.5 rounded-full ${online ? 'bg-green-500 shadow-green-500/50 shadow-sm' : 'bg-slate-600'}` });
+        peerRow.appendChild(h('span', { className: 'col-span-1 flex items-center' }, statusDot));
+        peerRow.appendChild(h('span', { className: 'col-span-2 text-white font-mono text-xs' }, pid));
+        peerRow.appendChild(h('span', { className: 'col-span-3 text-slate-300' }, hostname));
+        peerRow.appendChild(h('span', { className: 'col-span-2 text-blue-400 font-mono text-xs' }, ip));
+        peerRow.appendChild(h('span', { className: 'col-span-2 text-slate-400 text-xs' }, platform));
+
+        const connectBtn = h('button', {
+          className: 'btn btn-primary text-xs px-3 py-1',
+          onclick: () => { window.location.href = `rustdesk://connection/new/${pid}`; },
+        });
+        connectBtn.innerHTML = '<svg class="w-3.5 h-3.5 inline mr-1 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>Bağlan';
+        peerRow.appendChild(h('span', { className: 'col-span-2 text-right' }, connectBtn));
+
+        peerTable.appendChild(peerRow);
+      }
+      peerSection.appendChild(peerTable);
+    } else {
+      peerSection.appendChild(h('div', { className: 'text-center py-6 text-slate-500' }, 'Adres defterinde kayıtlı cihaz yok'));
+    }
+    body.appendChild(peerSection);
+
+    const m = modal(`${u.username} — Adres Defteri`, body, () => closeModal(m));
+    m.querySelector('.modal').classList.add('modal-wide');
+  }
+
   function showCreateUser() {
     const form = h('div', { className: 'space-y-4' });
     form.innerHTML = `
       <div><label class="block text-sm text-slate-400 mb-1">Kullanıcı Adı</label><input id="cu-user" class="input w-full"></div>
       <div><label class="block text-sm text-slate-400 mb-1">Şifre</label><input id="cu-pass" type="password" class="input w-full"></div>
       <div><label class="block text-sm text-slate-400 mb-1">E-posta</label><input id="cu-email" class="input w-full"></div>
+      <div><label class="block text-sm text-slate-400 mb-1">Rol</label>
+        <select id="cu-role" class="input w-full">
+          <option value="user">Kullanıcı</option>
+          <option value="admin">Admin</option>
+        </select>
+        <p class="text-xs text-slate-500 mt-1">Admin rolü: tüm sistem cihazları adres defterine otomatik eklenir</p>
+      </div>
       <div class="flex justify-end gap-2">
         <button class="btn btn-ghost" id="cu-cancel">İptal</button>
         <button class="btn btn-primary" id="cu-save">Oluştur</button>
@@ -406,6 +481,7 @@ Pages.users = async (el) => {
         username: form.querySelector('#cu-user').value,
         password: form.querySelector('#cu-pass').value,
         email: form.querySelector('#cu-email').value,
+        role: form.querySelector('#cu-role').value,
       });
       closeModal(m);
       load();
@@ -417,6 +493,13 @@ Pages.users = async (el) => {
     form.innerHTML = `
       <div><label class="block text-sm text-slate-400 mb-1">E-posta</label><input id="eu-email" class="input w-full" value="${u.email || ''}"></div>
       <div><label class="block text-sm text-slate-400 mb-1">Yeni Şifre (boş bırakılabilir)</label><input id="eu-pass" type="password" class="input w-full"></div>
+      <div><label class="block text-sm text-slate-400 mb-1">Rol</label>
+        <select id="eu-role" class="input w-full">
+          <option value="user" ${u.role !== 'admin' ? 'selected' : ''}>Kullanıcı</option>
+          <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+        </select>
+        <p class="text-xs text-slate-500 mt-1">Admin rolü: tüm sistem cihazları adres defterine otomatik eklenir</p>
+      </div>
       <div><label class="block text-sm text-slate-400 mb-1">Durum</label><select id="eu-status" class="input w-full"><option value="1" ${u.status===1?'selected':''}>Aktif</option><option value="0" ${u.status===0?'selected':''}>Devre Dışı</option></select></div>
       <div class="flex justify-end gap-2">
         <button class="btn btn-ghost" id="eu-cancel">İptal</button>
@@ -425,7 +508,11 @@ Pages.users = async (el) => {
     const m = modal(`Kullanıcı: ${u.username}`, form, () => closeModal(m));
     form.querySelector('#eu-cancel').onclick = () => closeModal(m);
     form.querySelector('#eu-save').onclick = async () => {
-      const data = { email: form.querySelector('#eu-email').value, status: parseInt(form.querySelector('#eu-status').value) };
+      const data = {
+        email: form.querySelector('#eu-email').value,
+        role: form.querySelector('#eu-role').value,
+        status: parseInt(form.querySelector('#eu-status').value),
+      };
       const pw = form.querySelector('#eu-pass').value;
       if (pw) data.password = pw;
       await API.updateUser(u.id, data);

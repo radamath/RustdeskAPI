@@ -48,6 +48,7 @@ def _migrate_schema():
         ("admin_user", "totp_secret", "VARCHAR(32)"),
         ("admin_user", "totp_enabled", "BOOLEAN DEFAULT 0"),
         ("heartbeat", "ip", "VARCHAR(45) DEFAULT ''"),
+        ("rustdesk_user", "role", "VARCHAR(20) DEFAULT 'user'"),
     ]
     for table, column, col_type in migrations:
         try:

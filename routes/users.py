@@ -1,11 +1,92 @@
 """Admin endpoints for RustDesk user management."""
 
+import json
+from datetime import datetime, timedelta, timezone
+
 from flask import Blueprint, jsonify, request
 
-from models import RustdeskUser, UserToken, db
+import rustdesk_db
+from models import AddressBook, Heartbeat, RustdeskUser, UserToken, db
 from routes.auth import admin_required, hash_password, log_audit
 
 bp = Blueprint("users", __name__, url_prefix="/admin/api/users")
+
+
+# ── Sync helper ──────────────────────────────────────────────────────
+
+def sync_admin_address_books(exclude_peer_id=None):
+    """Ensure every admin-role RustdeskUser has all system peers in their
+    default address book.  Called on heartbeat (new peer) and role change."""
+    all_peers_raw, _ = rustdesk_db.get_all_peers(page=1, per_page=999999)
+
+    heartbeats = {h.id: h for h in Heartbeat.query.all()}
+
+    system_peers = []
+    for rp in all_peers_raw:
+        info = rp.get("info", {})
+        entry = {
+            "id": rp["id"],
+            "hostname": info.get("hostname", ""),
+            "platform": info.get("os", ""),
+            "alias": "",
+            "tags": [],
+        }
+        hb = heartbeats.get(rp["id"])
+        if hb and hb.ip:
+            entry["ip"] = hb.ip
+        system_peers.append(entry)
+
+    for hb_id, hb in heartbeats.items():
+        if not any(p["id"] == hb_id for p in system_peers):
+            system_peers.append({
+                "id": hb_id,
+                "hostname": "",
+                "platform": "",
+                "alias": "",
+                "tags": [],
+                "ip": hb.ip or "",
+            })
+
+    admins = RustdeskUser.query.filter_by(role="admin", status=1).all()
+    for admin in admins:
+        book = AddressBook.query.filter_by(user_id=admin.id, name="default").first()
+        if not book:
+            book = AddressBook(user_id=admin.id, name="default")
+            db.session.add(book)
+            db.session.flush()
+
+        existing = json.loads(book.peers_json or "[]")
+        existing_ids = {
+            (p.get("id") if isinstance(p, dict) else p) for p in existing
+        }
+
+        merged = list(existing)
+        for sp in system_peers:
+            if sp["id"] not in existing_ids:
+                merged.append(sp)
+
+        if len(merged) != len(existing):
+            book.peers_json = json.dumps(merged)
+
+    db.session.commit()
+
+
+# ── CRUD ─────────────────────────────────────────────────────────────
+
+def _user_dict(u):
+    ab = AddressBook.query.filter_by(user_id=u.id, name="default").first()
+    return {
+        "id": u.id,
+        "username": u.username,
+        "email": u.email or "",
+        "role": u.role or "user",
+        "group_id": u.group_id,
+        "group_name": u.group.name if u.group else None,
+        "status": u.status,
+        "created_at": u.created_at.isoformat() if u.created_at else None,
+        "token_count": len(u.tokens),
+        "ab_peer_count": len(json.loads(ab.peers_json or "[]")) if ab else 0,
+    }
 
 
 @bp.route("", methods=["GET"])
@@ -22,16 +103,7 @@ def list_users():
     items = q.order_by(RustdeskUser.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
 
     return jsonify({
-        "data": [{
-            "id": u.id,
-            "username": u.username,
-            "email": u.email or "",
-            "group_id": u.group_id,
-            "group_name": u.group.name if u.group else None,
-            "status": u.status,
-            "created_at": u.created_at.isoformat() if u.created_at else None,
-            "token_count": len(u.tokens),
-        } for u in items],
+        "data": [_user_dict(u) for u in items],
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -50,16 +122,25 @@ def create_user():
     if RustdeskUser.query.filter_by(username=username).first():
         return jsonify({"error": "Bu kullanıcı adı zaten mevcut"}), 409
 
+    role = data.get("role", "user")
+    if role not in ("admin", "user"):
+        role = "user"
+
     user = RustdeskUser(
         username=username,
         password_hash=hash_password(password),
         email=data.get("email", ""),
+        role=role,
         group_id=data.get("group_id"),
         status=data.get("status", 1),
     )
     db.session.add(user)
     db.session.commit()
-    log_audit("user_create", f"Kullanıcı oluşturuldu: {username}")
+
+    if role == "admin":
+        sync_admin_address_books()
+
+    log_audit("user_create", f"Kullanıcı oluşturuldu: {username} (rol: {role})")
     return jsonify({"id": user.id}), 201
 
 
@@ -69,15 +150,7 @@ def get_user(user_id):
     u = db.session.get(RustdeskUser, user_id)
     if not u:
         return jsonify({"error": "Kullanıcı bulunamadı"}), 404
-    return jsonify({
-        "id": u.id,
-        "username": u.username,
-        "email": u.email or "",
-        "group_id": u.group_id,
-        "group_name": u.group.name if u.group else None,
-        "status": u.status,
-        "created_at": u.created_at.isoformat() if u.created_at else None,
-    })
+    return jsonify(_user_dict(u))
 
 
 @bp.route("/<int:user_id>", methods=["PUT"])
@@ -88,6 +161,8 @@ def update_user(user_id):
         return jsonify({"error": "Kullanıcı bulunamadı"}), 404
 
     data = request.get_json(silent=True) or {}
+    old_role = u.role or "user"
+
     if "email" in data:
         u.email = data["email"]
     if "group_id" in data:
@@ -96,8 +171,14 @@ def update_user(user_id):
         u.status = data["status"]
     if "password" in data and data["password"]:
         u.password_hash = hash_password(data["password"])
+    if "role" in data and data["role"] in ("admin", "user"):
+        u.role = data["role"]
 
     db.session.commit()
+
+    if u.role == "admin" and old_role != "admin":
+        sync_admin_address_books()
+
     log_audit("user_update", f"Kullanıcı güncellendi: {u.username}")
     return jsonify({"ok": True})
 
@@ -110,7 +191,69 @@ def delete_user(user_id):
         return jsonify({"error": "Kullanıcı bulunamadı"}), 404
     username = u.username
     UserToken.query.filter_by(user_id=user_id).delete()
+    AddressBook.query.filter_by(user_id=user_id).delete()
     db.session.delete(u)
     db.session.commit()
     log_audit("user_delete", f"Kullanıcı silindi: {username}")
     return jsonify({"ok": True})
+
+
+# ── User address book detail (for admin panel) ──────────────────────
+
+@bp.route("/<int:user_id>/address-book", methods=["GET"])
+@admin_required
+def user_address_book(user_id):
+    u = db.session.get(RustdeskUser, user_id)
+    if not u:
+        return jsonify({"error": "Kullanıcı bulunamadı"}), 404
+
+    book = AddressBook.query.filter_by(user_id=u.id, name="default").first()
+    if not book:
+        return jsonify({"peers": [], "tags": []})
+
+    peers = json.loads(book.peers_json or "[]")
+    peer_ids = [p.get("id") if isinstance(p, dict) else p for p in peers]
+
+    hb_map = {}
+    if peer_ids:
+        for hb in Heartbeat.query.filter(Heartbeat.id.in_(peer_ids)).all():
+            hb_map[hb.id] = hb
+
+    rd_map = {}
+    for pid in peer_ids:
+        rd = rustdesk_db.get_peer(pid)
+        if rd:
+            rd_map[pid] = rd
+
+    threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
+    enriched = []
+    for p in peers:
+        pid = p.get("id") if isinstance(p, dict) else p
+        entry = dict(p) if isinstance(p, dict) else {"id": pid}
+
+        hb = hb_map.get(pid)
+        if hb:
+            entry["ip"] = hb.ip or ""
+            entry["online"] = hb.last_seen >= threshold if hb.last_seen else False
+            entry["last_seen"] = hb.last_seen.isoformat() if hb.last_seen else None
+        else:
+            entry.setdefault("ip", "")
+            entry["online"] = False
+            entry["last_seen"] = None
+
+        rd = rd_map.get(pid)
+        if rd:
+            info = rd.get("info", {})
+            if not entry.get("hostname") and info.get("hostname"):
+                entry["hostname"] = info["hostname"]
+            if not entry.get("platform") and info.get("os"):
+                entry["platform"] = info["os"]
+
+        entry.setdefault("hostname", "")
+        entry.setdefault("platform", "")
+        enriched.append(entry)
+
+    return jsonify({
+        "peers": enriched,
+        "tags": json.loads(book.tags_json or "[]"),
+    })

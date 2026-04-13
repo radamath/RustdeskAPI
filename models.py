@@ -34,6 +34,7 @@ class RustdeskUser(db.Model):
     password_hash = db.Column(db.String(128), nullable=False)
     email = db.Column(db.String(120))
     group_id = db.Column(db.Integer, db.ForeignKey("device_group.id"), nullable=True)
+    role = db.Column(db.String(20), default="user")  # "admin" or "user"
     status = db.Column(db.Integer, default=1)  # 1=active, 0=disabled
     created_at = db.Column(db.DateTime, default=_utcnow)
 
