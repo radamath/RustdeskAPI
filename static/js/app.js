@@ -340,22 +340,37 @@ Pages.devices = async (el) => {
     const header = h('div', { className: 'flex items-center justify-between mb-6' });
     header.appendChild(h('h1', { className: 'text-2xl font-bold text-white' }, 'Cihazlar'));
     el.appendChild(header);
-    el.appendChild(searchBar('Cihaz ID veya not ara...', (v) => { search = v; page = 1; load(); }));
+    el.appendChild(searchBar('Cihaz ID, hostname veya not ara...', (v) => { search = v; page = 1; load(); }));
+
+    const onlineCount = devices.filter(d => d.online).length;
+    const statsBar = h('div', { className: 'flex gap-4 mb-4 text-sm' });
+    statsBar.appendChild(h('span', { className: 'text-slate-400' }, `Toplam: ${total}`));
+    statsBar.appendChild(h('span', { className: 'text-green-400' }, `Çevrimiçi: ${onlineCount}`));
+    statsBar.appendChild(h('span', { className: 'text-slate-500' }, `Çevrimdışı: ${devices.length - onlineCount}`));
+    el.appendChild(statsBar);
 
     const table = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl overflow-hidden' });
-    const thead = '<div class="grid grid-cols-6 gap-4 px-5 py-3 bg-slate-750 border-b border-slate-700 text-xs font-semibold text-slate-400 uppercase tracking-wider"><span>ID</span><span>Takma Ad</span><span>Durum</span><span>IP</span><span>Kayıt Tarihi</span><span>İşlem</span></div>';
-    table.innerHTML = thead;
+    table.innerHTML = '<div class="grid grid-cols-12 gap-2 px-5 py-3 border-b border-slate-700 text-xs font-semibold text-slate-400 uppercase tracking-wider"><span class="col-span-1"></span><span class="col-span-1">ID</span><span class="col-span-2">Bilgisayar</span><span class="col-span-1">Takma Ad</span><span class="col-span-2">Lokal IP</span><span class="col-span-2">Global IP</span><span class="col-span-1">Platform</span><span class="col-span-2 text-right">İşlem</span></div>';
 
     for (const d of devices) {
-      const online = d.last_seen && (Date.now() - new Date(d.last_seen).getTime() < 300000);
-      const row = h('div', { className: 'grid grid-cols-6 gap-4 px-5 py-3 table-row border-b border-slate-700/50 items-center text-sm' });
-      row.appendChild(h('span', { className: 'text-white font-mono' }, d.id));
-      row.appendChild(h('span', { className: 'text-slate-300' }, d.alias || '-'));
-      row.appendChild(h('span', {}, h('span', { className: online ? 'badge badge-green' : 'badge badge-red' }, online ? 'Çevrimiçi' : 'Çevrimdışı')));
-      row.appendChild(h('span', { className: 'text-slate-400' }, d.info?.ip || '-'));
-      row.appendChild(h('span', { className: 'text-slate-400' }, formatDate(d.created_at)));
-      const editBtn = h('button', { className: 'btn btn-ghost text-xs', onclick: () => editDevice(d) }, 'Düzenle');
-      row.appendChild(editBtn);
+      const row = h('div', { className: 'grid grid-cols-12 gap-2 px-5 py-3 table-row border-b border-slate-700/50 items-center text-sm' });
+
+      const statusDot = h('span', { className: `inline-block w-2.5 h-2.5 rounded-full ${d.online ? 'bg-green-500 shadow-green-500/50 shadow-sm' : 'bg-slate-600'}` });
+      row.appendChild(h('span', { className: 'col-span-1 flex items-center' }, statusDot));
+      row.appendChild(h('span', { className: 'col-span-1 text-white font-mono text-xs' }, d.id));
+      row.appendChild(h('span', { className: 'col-span-2 text-slate-300 text-xs truncate' }, d.hostname || '-'));
+      row.appendChild(h('span', { className: 'col-span-1 text-slate-400 text-xs truncate' }, d.alias || '-'));
+      row.appendChild(h('span', { className: 'col-span-2 text-green-400 font-mono text-xs' }, d.local_ip || '-'));
+      row.appendChild(h('span', { className: 'col-span-2 text-slate-500 font-mono text-xs' }, d.global_ip || '-'));
+      row.appendChild(h('span', { className: 'col-span-1 text-slate-400 text-xs truncate' }, d.platform || '-'));
+
+      const actions = h('div', { className: 'col-span-2 flex gap-1 justify-end' });
+      const connectBtn = h('button', { className: 'btn btn-primary text-xs px-2 py-1', onclick: () => { window.location.href = `rustdesk://connection/new/${d.id}`; } });
+      connectBtn.innerHTML = '<svg class="w-3 h-3 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>';
+      actions.appendChild(connectBtn);
+      actions.appendChild(h('button', { className: 'btn btn-ghost text-xs px-2 py-1', onclick: () => editDevice(d) }, 'Düzenle'));
+      actions.appendChild(h('button', { className: 'btn btn-danger text-xs px-2 py-1', onclick: () => deleteDevice(d) }, 'Sil'));
+      row.appendChild(actions);
       table.appendChild(row);
     }
     if (!devices.length) {
@@ -368,6 +383,14 @@ Pages.devices = async (el) => {
   function editDevice(d) {
     const form = h('div', { className: 'space-y-4' });
     form.innerHTML = `
+      <div class="grid grid-cols-2 gap-4 text-sm mb-4">
+        <div><span class="text-slate-400">ID:</span> <span class="text-white font-mono">${d.id}</span></div>
+        <div><span class="text-slate-400">Hostname:</span> <span class="text-white">${d.hostname || '-'}</span></div>
+        <div><span class="text-slate-400">Lokal IP:</span> <span class="text-green-400 font-mono">${d.local_ip || '-'}</span></div>
+        <div><span class="text-slate-400">Global IP:</span> <span class="text-slate-300 font-mono">${d.global_ip || '-'}</span></div>
+        <div><span class="text-slate-400">Platform:</span> <span class="text-slate-300">${d.platform || '-'}</span></div>
+        <div><span class="text-slate-400">Durum:</span> <span class="${d.online ? 'text-green-400' : 'text-red-400'}">${d.online ? 'Çevrimiçi' : 'Çevrimdışı'}</span></div>
+      </div>
       <div><label class="block text-sm text-slate-400 mb-1">Takma Ad</label><input id="ed-alias" class="input w-full" value="${d.alias || ''}"></div>
       <div><label class="block text-sm text-slate-400 mb-1">Notlar</label><textarea id="ed-notes" class="input w-full" rows="3">${d.notes || ''}</textarea></div>
       <div class="flex justify-end gap-2">
@@ -384,6 +407,12 @@ Pages.devices = async (el) => {
       closeModal(m);
       load();
     };
+  }
+
+  async function deleteDevice(d) {
+    if (!confirm(`"${d.id}" (${d.hostname || 'isimsiz'}) cihazını silmek istediğinize emin misiniz?\n\nBu işlem heartbeat ve etiket verilerini siler.`)) return;
+    await API.deleteDevice(d.id);
+    load();
   }
 
   await load();

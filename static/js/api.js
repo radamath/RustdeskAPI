@@ -51,6 +51,7 @@ const API = {
   device(id) { return this.get(`/admin/api/devices/${encodeURIComponent(id)}`); },
   deviceStats() { return this.get('/admin/api/devices/stats'); },
   updateDeviceTags(id, data) { return this.put(`/admin/api/devices/${encodeURIComponent(id)}/tags`, data); },
+  deleteDevice(id) { return this.del(`/admin/api/devices/${encodeURIComponent(id)}`); },
 
   // Users
   users(page = 1, search = '') {
