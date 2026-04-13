@@ -38,7 +38,7 @@ def list_address_books():
 @bp.route("/<int:ab_id>", methods=["GET"])
 @admin_required
 def get_address_book(ab_id):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     ab = db.session.get(AddressBook, ab_id)
     if not ab:
@@ -54,11 +54,15 @@ def get_address_book(ab_id):
 
     rd_peer_map = {}
     for pid in peer_ids:
-        rd = rustdesk_db.get_peer(pid)
-        if rd:
-            rd_peer_map[pid] = rd
+        try:
+            rd = rustdesk_db.get_peer(pid)
+            if rd:
+                rd_peer_map[pid] = rd
+        except Exception:
+            pass
 
-    threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
+    now_naive = datetime.utcnow()
+    threshold = now_naive - timedelta(minutes=5)
     enriched = []
     for p in peers:
         pid = p.get("id") if isinstance(p, dict) else p
@@ -67,7 +71,11 @@ def get_address_book(ab_id):
         hb = hb_map.get(pid)
         if hb:
             entry["ip"] = hb.ip or ""
-            entry["online"] = hb.last_seen >= threshold if hb.last_seen else False
+            try:
+                ls = hb.last_seen.replace(tzinfo=None) if hb.last_seen and hb.last_seen.tzinfo else hb.last_seen
+                entry["online"] = ls >= threshold if ls else False
+            except Exception:
+                entry["online"] = False
             entry["last_seen"] = hb.last_seen.isoformat() if hb.last_seen else None
         else:
             entry.setdefault("ip", "")

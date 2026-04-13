@@ -221,11 +221,15 @@ def user_address_book(user_id):
 
     rd_map = {}
     for pid in peer_ids:
-        rd = rustdesk_db.get_peer(pid)
-        if rd:
-            rd_map[pid] = rd
+        try:
+            rd = rustdesk_db.get_peer(pid)
+            if rd:
+                rd_map[pid] = rd
+        except Exception:
+            pass
 
-    threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
+    now_naive = datetime.utcnow()
+    threshold = now_naive - timedelta(minutes=5)
     enriched = []
     for p in peers:
         pid = p.get("id") if isinstance(p, dict) else p
@@ -234,7 +238,11 @@ def user_address_book(user_id):
         hb = hb_map.get(pid)
         if hb:
             entry["ip"] = hb.ip or ""
-            entry["online"] = hb.last_seen >= threshold if hb.last_seen else False
+            try:
+                ls = hb.last_seen.replace(tzinfo=None) if hb.last_seen and hb.last_seen.tzinfo else hb.last_seen
+                entry["online"] = ls >= threshold if ls else False
+            except Exception:
+                entry["online"] = False
             entry["last_seen"] = hb.last_seen.isoformat() if hb.last_seen else None
         else:
             entry.setdefault("ip", "")
