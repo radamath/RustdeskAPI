@@ -1,10 +1,14 @@
 """Admin panel authentication (session-based) and helper utilities."""
 
+import base64
 import functools
+import io
 from datetime import datetime, timezone
 
 import bcrypt
 import jwt
+import pyotp
+import qrcode
 from flask import Blueprint, current_app, jsonify, request, session
 
 from models import AdminUser, AuditLog, db
@@ -79,6 +83,7 @@ def admin_login():
     data = request.get_json(silent=True) or {}
     username = data.get("username", "")
     password = data.get("password", "")
+    totp_code = data.get("totp_code", "")
 
     user = AdminUser.query.filter_by(username=username).first()
     if not user or not check_password(password, user.password_hash):
@@ -87,6 +92,13 @@ def admin_login():
     if not user.is_active:
         return jsonify({"error": "Hesap devre dışı"}), 403
 
+    if user.totp_enabled:
+        if not totp_code:
+            return jsonify({"requires_2fa": True, "error": "2FA kodu gerekli"}), 202
+        totp = pyotp.TOTP(user.totp_secret)
+        if not totp.verify(totp_code, valid_window=1):
+            return jsonify({"error": "Geçersiz 2FA kodu"}), 401
+
     session["admin_user_id"] = user.id
     log_audit("admin_login", f"Admin giriş: {username}")
     return jsonify({
@@ -94,6 +106,7 @@ def admin_login():
         "username": user.username,
         "email": user.email or "",
         "role": user.role,
+        "totp_enabled": user.totp_enabled,
     })
 
 
@@ -114,4 +127,74 @@ def admin_me():
         "username": u.username,
         "email": u.email or "",
         "role": u.role,
+        "totp_enabled": u.totp_enabled,
     })
+
+
+# ── 2FA (TOTP) endpoints ────────────────────────────────────────────
+
+@bp.route("/admin/api/2fa/setup", methods=["POST"])
+@admin_required
+def totp_setup():
+    u = request._admin_user
+    if u.totp_enabled:
+        return jsonify({"error": "2FA zaten etkin"}), 400
+
+    secret = pyotp.random_base32()
+    u.totp_secret = secret
+    db.session.commit()
+
+    totp = pyotp.TOTP(secret)
+    uri = totp.provisioning_uri(name=u.username, issuer_name="RustDesk Admin")
+
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    qr_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    return jsonify({
+        "secret": secret,
+        "qr_code": f"data:image/png;base64,{qr_b64}",
+        "uri": uri,
+    })
+
+
+@bp.route("/admin/api/2fa/verify", methods=["POST"])
+@admin_required
+def totp_verify():
+    u = request._admin_user
+    data = request.get_json(silent=True) or {}
+    code = data.get("code", "")
+
+    if not u.totp_secret:
+        return jsonify({"error": "Önce 2FA kurulumu yapın"}), 400
+
+    totp = pyotp.TOTP(u.totp_secret)
+    if not totp.verify(code, valid_window=1):
+        return jsonify({"error": "Geçersiz kod"}), 401
+
+    u.totp_enabled = True
+    db.session.commit()
+    log_audit("2fa_enabled", f"2FA etkinleştirildi: {u.username}")
+    return jsonify({"ok": True})
+
+
+@bp.route("/admin/api/2fa/disable", methods=["POST"])
+@admin_required
+def totp_disable():
+    u = request._admin_user
+    data = request.get_json(silent=True) or {}
+    code = data.get("code", "")
+
+    if not u.totp_enabled:
+        return jsonify({"error": "2FA zaten devre dışı"}), 400
+
+    totp = pyotp.TOTP(u.totp_secret)
+    if not totp.verify(code, valid_window=1):
+        return jsonify({"error": "Geçersiz kod, 2FA devre dışı bırakılamadı"}), 401
+
+    u.totp_enabled = False
+    u.totp_secret = None
+    db.session.commit()
+    log_audit("2fa_disabled", f"2FA devre dışı bırakıldı: {u.username}")
+    return jsonify({"ok": True})

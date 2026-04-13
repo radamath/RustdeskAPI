@@ -184,11 +184,25 @@ def dashboard():
             if day_key in daily_counts:
                 daily_counts[day_key] += 1
 
+    online_heartbeats = Heartbeat.query.filter(Heartbeat.last_seen >= online_threshold).all()
+    online_list = []
+    for hb in online_heartbeats:
+        peer = rustdesk_db.get_peer(hb.id)
+        online_list.append({
+            "id": hb.id,
+            "ip": hb.ip or "",
+            "last_seen": hb.last_seen.isoformat() if hb.last_seen else None,
+            "hostname": (peer or {}).get("info", {}).get("hostname", ""),
+            "os": (peer or {}).get("info", {}).get("os", ""),
+            "user": (peer or {}).get("user", ""),
+        })
+
     return jsonify({
         "total_peers": total_peers,
         "online_peers": online_peers,
         "total_users": total_users,
         "total_connections": total_connections,
+        "online_list": online_list,
         "recent_connections": [{
             "id": l.id,
             "from_peer": l.from_peer,

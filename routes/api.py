@@ -102,12 +102,14 @@ def heartbeat():
     uid = data.get("uuid", "") or data.get("id", "")
     if uid:
         now = datetime.now(timezone.utc)
+        client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
         hb = db.session.get(Heartbeat, uid)
         if hb:
+            hb.ip = client_ip
             if (now - hb.last_seen).total_seconds() > 30:
                 hb.last_seen = now
         else:
-            hb = Heartbeat(id=uid, uuid=uid, last_seen=now)
+            hb = Heartbeat(id=uid, uuid=uid, ip=client_ip, last_seen=now)
             db.session.add(hb)
         db.session.commit()
     return jsonify({})
@@ -243,11 +245,176 @@ def ab_peers():
     user = _get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
-    book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
+    data = request.get_json(silent=True) or {}
+    ab_guid = data.get("ab", "")
+    book = None
+    if ab_guid:
+        book = AddressBook.query.filter_by(user_id=user.id, guid=ab_guid).first()
+    if not book:
+        book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
     if not book:
         return jsonify({"data": [], "total": 0})
     peers = json.loads(book.peers_json or "[]")
     return jsonify({"data": peers, "total": len(peers)})
+
+
+def _get_or_create_book(user, guid=None):
+    if guid:
+        book = AddressBook.query.filter_by(user_id=user.id, guid=guid).first()
+        if book:
+            return book
+    book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
+    if not book:
+        book = AddressBook(user_id=user.id, name="default")
+        db.session.add(book)
+        db.session.commit()
+    return book
+
+
+@bp.route("/ab/peer/add/<guid>", methods=["POST"])
+def ab_peer_add(guid):
+    user = _get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    book = _get_or_create_book(user, guid)
+    peers = json.loads(book.peers_json or "[]")
+    new_peer = data.get("data", data)
+    if isinstance(new_peer, dict):
+        peer_id = new_peer.get("id", "")
+        peers = [p for p in peers if (p.get("id") if isinstance(p, dict) else p) != peer_id]
+        peers.append(new_peer)
+    book.peers_json = json.dumps(peers)
+    db.session.commit()
+    return jsonify({})
+
+
+@bp.route("/ab/peer/update/<guid>", methods=["PUT"])
+def ab_peer_update(guid):
+    user = _get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    updated = data.get("data", data)
+    peer_id = updated.get("id", guid)
+    book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
+    if not book:
+        return jsonify({"error": "Not found"}), 404
+    peers = json.loads(book.peers_json or "[]")
+    for i, p in enumerate(peers):
+        pid = p.get("id") if isinstance(p, dict) else p
+        if pid == peer_id:
+            if isinstance(updated, dict) and isinstance(p, dict):
+                p.update(updated)
+            else:
+                peers[i] = updated
+            break
+    book.peers_json = json.dumps(peers)
+    db.session.commit()
+    return jsonify({})
+
+
+@bp.route("/ab/peer/<guid>", methods=["DELETE"])
+def ab_peer_delete(guid):
+    user = _get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    peer_ids = data.get("id", [guid])
+    if isinstance(peer_ids, str):
+        peer_ids = [peer_ids]
+    book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
+    if not book:
+        return jsonify({})
+    peers = json.loads(book.peers_json or "[]")
+    peers = [p for p in peers if (p.get("id") if isinstance(p, dict) else p) not in peer_ids]
+    book.peers_json = json.dumps(peers)
+    db.session.commit()
+    return jsonify({})
+
+
+@bp.route("/ab/tags/<guid>", methods=["POST"])
+def ab_tags_list(guid):
+    user = _get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    book = _get_or_create_book(user, guid)
+    tags = json.loads(book.tags_json or "[]")
+    return jsonify({"data": tags, "total": len(tags)})
+
+
+@bp.route("/ab/tag/add/<guid>", methods=["POST"])
+def ab_tag_add(guid):
+    user = _get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    book = _get_or_create_book(user, guid)
+    tags = json.loads(book.tags_json or "[]")
+    new_tag = data.get("name", data.get("data", ""))
+    if new_tag and new_tag not in [t.get("name", t) if isinstance(t, dict) else t for t in tags]:
+        tag_entry = {"name": new_tag, "color": data.get("color", "")} if data.get("color") else new_tag
+        tags.append(tag_entry)
+    book.tags_json = json.dumps(tags)
+    db.session.commit()
+    return jsonify({})
+
+
+@bp.route("/ab/tag/rename/<guid>", methods=["PUT"])
+def ab_tag_rename(guid):
+    user = _get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    old_name = data.get("old", "")
+    new_name = data.get("new", "")
+    book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
+    if book and old_name and new_name:
+        tags = json.loads(book.tags_json or "[]")
+        for i, t in enumerate(tags):
+            name = t.get("name") if isinstance(t, dict) else t
+            if name == old_name:
+                tags[i] = {"name": new_name, "color": t.get("color", "")} if isinstance(t, dict) else new_name
+                break
+        book.tags_json = json.dumps(tags)
+        db.session.commit()
+    return jsonify({})
+
+
+@bp.route("/ab/tag/update/<guid>", methods=["PUT"])
+def ab_tag_update(guid):
+    user = _get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
+    if book:
+        tags = json.loads(book.tags_json or "[]")
+        tag_name = data.get("name", "")
+        for i, t in enumerate(tags):
+            name = t.get("name") if isinstance(t, dict) else t
+            if name == tag_name:
+                tags[i] = {"name": tag_name, "color": data.get("color", "")}
+                break
+        book.tags_json = json.dumps(tags)
+        db.session.commit()
+    return jsonify({})
+
+
+@bp.route("/ab/tag/<guid>", methods=["DELETE"])
+def ab_tag_delete(guid):
+    user = _get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    tag_name = data.get("name", guid)
+    book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
+    if book:
+        tags = json.loads(book.tags_json or "[]")
+        tags = [t for t in tags if (t.get("name") if isinstance(t, dict) else t) != tag_name]
+        book.tags_json = json.dumps(tags)
+        db.session.commit()
+    return jsonify({})
 
 
 # ── Audit ───────────────────────────────────────────────────────────

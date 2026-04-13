@@ -22,6 +22,8 @@ class AdminUser(db.Model):
     email = db.Column(db.String(120))
     role = db.Column(db.String(20), default="admin")
     is_active = db.Column(db.Boolean, default=True)
+    totp_secret = db.Column(db.String(32), nullable=True)
+    totp_enabled = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=_utcnow)
 
 
@@ -139,4 +141,5 @@ class Heartbeat(db.Model):
     __tablename__ = "heartbeat"
     id = db.Column(db.String(100), primary_key=True)  # peer uuid
     uuid = db.Column(db.String(100), default="")
+    ip = db.Column(db.String(45), default="")
     last_seen = db.Column(db.DateTime, default=_utcnow)

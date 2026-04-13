@@ -14,6 +14,7 @@ const API = {
       throw new Error('Unauthorized');
     }
     const data = await res.json();
+    if (res.status === 202) { data._status = 202; return data; }
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
   },
@@ -30,9 +31,14 @@ const API = {
   del(url) { return this.request('DELETE', url); },
 
   // Admin auth
-  login(username, password) { return this.post('/admin/api/login', { username, password }); },
+  login(username, password, totp_code = '') { return this.post('/admin/api/login', { username, password, totp_code }); },
   logout() { return this.post('/admin/api/logout'); },
   me() { return this.silentGet('/admin/api/me'); },
+
+  // 2FA
+  setup2FA() { return this.post('/admin/api/2fa/setup'); },
+  verify2FA(code) { return this.post('/admin/api/2fa/verify', { code }); },
+  disable2FA(code) { return this.post('/admin/api/2fa/disable', { code }); },
 
   // Dashboard
   dashboard() { return this.get('/admin/api/dashboard'); },

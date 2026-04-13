@@ -39,10 +39,15 @@ const App = {
     const pEl = document.getElementById('login-password');
     const errEl = document.getElementById('login-error');
 
-    const doLogin = async () => {
+    const doLogin = async (totpCode = '') => {
       errEl.classList.add('hidden');
       try {
-        this.user = await API.login(uEl.value, pEl.value);
+        const res = await API.login(uEl.value, pEl.value, totpCode);
+        if (res._status === 202 && res.requires_2fa) {
+          this.show2FAPrompt(uEl.value, pEl.value, errEl);
+          return;
+        }
+        this.user = res;
         this.showApp();
         this.registerRoutes();
         Router.init();
@@ -51,9 +56,40 @@ const App = {
         errEl.classList.remove('hidden');
       }
     };
-    btn.onclick = doLogin;
+    btn.onclick = () => doLogin();
     pEl.onkeydown = (e) => { if (e.key === 'Enter') doLogin(); };
     uEl.onkeydown = (e) => { if (e.key === 'Enter') pEl.focus(); };
+  },
+
+  show2FAPrompt(username, password, errEl) {
+    const loginBox = document.querySelector('#login-screen > div');
+    let totpDiv = document.getElementById('totp-section');
+    if (totpDiv) totpDiv.remove();
+    totpDiv = document.createElement('div');
+    totpDiv.id = 'totp-section';
+    totpDiv.innerHTML = `
+      <div class="mt-4 p-4 bg-slate-700/50 rounded-lg border border-slate-600">
+        <label class="block text-sm font-medium text-slate-300 mb-1">2FA Doğrulama Kodu</label>
+        <input id="totp-code" type="text" class="input w-full text-center text-lg tracking-widest" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+        <button id="totp-btn" class="btn btn-primary w-full justify-center mt-3">Doğrula</button>
+      </div>`;
+    loginBox.appendChild(totpDiv);
+    const codeEl = document.getElementById('totp-code');
+    const totpBtn = document.getElementById('totp-btn');
+    codeEl.focus();
+    const doVerify = async () => {
+      errEl.classList.add('hidden');
+      try {
+        const res = await API.login(username, password, codeEl.value);
+        if (res._status === 202) { errEl.textContent = 'Geçersiz kod'; errEl.classList.remove('hidden'); return; }
+        this.user = res;
+        this.showApp();
+        this.registerRoutes();
+        Router.init();
+      } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
+    };
+    totpBtn.onclick = doVerify;
+    codeEl.onkeydown = (e) => { if (e.key === 'Enter') doVerify(); };
   },
 
   async logout() {
@@ -72,6 +108,7 @@ const App = {
     Router.register('/audit-logs', Pages.auditLogs);
     Router.register('/settings', Pages.settings);
     Router.register('/api-keys', Pages.apiKeys);
+    Router.register('/security', Pages.security);
     Router.register('/login', () => App.showLogin());
   },
 };
@@ -224,6 +261,27 @@ Pages.dashboard = async (el) => {
   }
   chartSection.appendChild(recentCard);
   el.appendChild(chartSection);
+
+  // Online peers list
+  const onlineSection = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl p-5 mb-8' });
+  onlineSection.appendChild(h('h3', { className: 'text-white font-semibold mb-4' }, `Çevrimiçi Cihazlar (${data.online_list?.length || 0})`));
+  if (data.online_list?.length) {
+    const oTable = h('div', { className: 'overflow-x-auto' });
+    oTable.innerHTML = '<div class="grid grid-cols-5 gap-4 px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700"><span>ID</span><span>IP Adresi</span><span>Hostname</span><span>OS</span><span>Son Görülme</span></div>';
+    for (const p of data.online_list) {
+      const row = h('div', { className: 'grid grid-cols-5 gap-4 px-4 py-2 table-row border-b border-slate-700/50 items-center text-sm' });
+      row.appendChild(h('span', { className: 'text-white font-mono' }, p.id));
+      row.appendChild(h('span', { className: 'text-blue-400 font-mono' }, p.ip || '-'));
+      row.appendChild(h('span', { className: 'text-slate-300' }, p.hostname || '-'));
+      row.appendChild(h('span', { className: 'text-slate-400' }, p.os || '-'));
+      row.appendChild(h('span', { className: 'text-slate-400' }, formatDate(p.last_seen)));
+      oTable.appendChild(row);
+    }
+    onlineSection.appendChild(oTable);
+  } else {
+    onlineSection.appendChild(h('p', { className: 'text-slate-500 text-sm' }, 'Şu anda çevrimiçi cihaz yok'));
+  }
+  el.appendChild(onlineSection);
 };
 
 // ── Devices ────────────────────────────────────────────────────────
@@ -730,6 +788,69 @@ Pages.apiKeys = async (el) => {
   }
 
   await load();
+};
+
+// ── Security (2FA) ─────────────────────────────────────────────────
+
+Pages.security = async (el) => {
+  const me = await API.me();
+  el.innerHTML = '';
+  el.appendChild(h('h1', { className: 'text-2xl font-bold text-white mb-6' }, 'Güvenlik'));
+
+  const card = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-lg' });
+  card.appendChild(h('h3', { className: 'text-white font-semibold mb-2' }, 'İki Faktörlü Doğrulama (2FA)'));
+  card.appendChild(h('p', { className: 'text-slate-400 text-sm mb-4' }, 'Google Authenticator veya benzeri bir TOTP uygulaması ile hesabınızı koruyun.'));
+
+  if (me.totp_enabled) {
+    card.appendChild(h('div', { className: 'flex items-center gap-2 mb-4' },
+      h('span', { className: 'badge badge-green' }, 'Etkin'),
+      h('span', { className: 'text-slate-300 text-sm' }, '2FA aktif durumda')
+    ));
+    const disableForm = h('div', { className: 'space-y-3' });
+    disableForm.innerHTML = `
+      <div><label class="block text-sm text-slate-400 mb-1">Devre dışı bırakmak için mevcut 2FA kodunuzu girin</label>
+      <input id="dis-code" type="text" class="input w-full text-center tracking-widest" maxlength="6" placeholder="000000"></div>
+      <button id="dis-btn" class="btn btn-danger">2FA Devre Dışı Bırak</button>`;
+    card.appendChild(disableForm);
+    card.querySelector('#dis-btn').onclick = async () => {
+      try {
+        await API.disable2FA(card.querySelector('#dis-code').value);
+        Router.navigate('/security');
+      } catch (e) { alert(e.message); }
+    };
+  } else {
+    card.appendChild(h('div', { className: 'flex items-center gap-2 mb-4' },
+      h('span', { className: 'badge badge-red' }, 'Devre Dışı'),
+      h('span', { className: 'text-slate-300 text-sm' }, '2FA henüz kurulmamış')
+    ));
+    const setupBtn = h('button', { className: 'btn btn-primary', onclick: async () => {
+      const res = await API.setup2FA();
+      card.innerHTML = '';
+      card.appendChild(h('h3', { className: 'text-white font-semibold mb-4' }, '2FA Kurulumu'));
+      card.appendChild(h('p', { className: 'text-slate-400 text-sm mb-4' }, 'Aşağıdaki QR kodu TOTP uygulamanız ile taratın:'));
+      const qrImg = h('img', { src: res.qr_code, className: 'mx-auto mb-4 rounded-lg', style: 'width: 200px; height: 200px; image-rendering: pixelated;' });
+      card.appendChild(qrImg);
+      card.appendChild(h('p', { className: 'text-xs text-slate-500 text-center mb-4 font-mono break-all' }, `Manuel giriş: ${res.secret}`));
+      const verifyForm = h('div', { className: 'space-y-3' });
+      verifyForm.innerHTML = `
+        <div><label class="block text-sm text-slate-400 mb-1">Uygulamadaki 6 haneli kodu girin</label>
+        <input id="v-code" type="text" class="input w-full text-center text-lg tracking-widest" maxlength="6" placeholder="000000" autocomplete="one-time-code"></div>
+        <button id="v-btn" class="btn btn-primary w-full justify-center">Doğrula ve Etkinleştir</button>`;
+      card.appendChild(verifyForm);
+      card.querySelector('#v-code').focus();
+      card.querySelector('#v-btn').onclick = async () => {
+        try {
+          await API.verify2FA(card.querySelector('#v-code').value);
+          Router.navigate('/security');
+        } catch (e) { alert(e.message); }
+      };
+      card.querySelector('#v-code').onkeydown = (e) => {
+        if (e.key === 'Enter') card.querySelector('#v-btn').click();
+      };
+    }}, '2FA Kurulumunu Başlat');
+    card.appendChild(setupBtn);
+  }
+  el.appendChild(card);
 };
 
 // ── Boot ───────────────────────────────────────────────────────────
