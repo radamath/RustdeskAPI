@@ -24,6 +24,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        _migrate_schema()
         _ensure_admin(app)
 
     @app.route("/")
@@ -33,6 +34,28 @@ def create_app():
         return send_from_directory("templates", "index.html")
 
     return app
+
+
+def _migrate_schema():
+    """Add missing columns to existing tables so upgrades don't crash."""
+    import sqlite3
+    from config import DATA_DIR
+    db_path = os.path.join(DATA_DIR, "rustdesk_api.db")
+    if not os.path.isfile(db_path):
+        return
+    conn = sqlite3.connect(db_path)
+    migrations = [
+        ("admin_user", "totp_secret", "VARCHAR(32)"),
+        ("admin_user", "totp_enabled", "BOOLEAN DEFAULT 0"),
+        ("heartbeat", "ip", "VARCHAR(45) DEFAULT ''"),
+    ]
+    for table, column, col_type in migrations:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        except sqlite3.OperationalError:
+            pass
+    conn.commit()
+    conn.close()
 
 
 def _ensure_admin(app):
