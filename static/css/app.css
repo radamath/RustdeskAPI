@@ -108,3 +108,6 @@ body {
   max-height: 90vh;
   overflow-y: auto;
 }
+.modal-wide {
+  width: 800px;
+}
