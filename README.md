@@ -24,7 +24,7 @@ Portainer'da mevcut stack'inize şu servisi ekleyin:
 
 ```yaml
   rustdesk-api:
-    image: ghcr.io/GITHUB_USER/rustdeskapi:latest
+    image: ghcr.io/radamath/rustdeskapi:latest
     container_name: rustdesk-api
     restart: unless-stopped
     ports:
@@ -41,7 +41,7 @@ Portainer'da mevcut stack'inize şu servisi ekleyin:
       - shared-net
 ```
 
-> `GITHUB_USER` yerine GitHub kullanıcı adınızı yazın.
+> `radamath` yerine GitHub kullanıcı adınızı yazın.
 > `rustdesk_data` volume adının mevcut hbbs/hbbr servislerinizle aynı olduğundan emin olun.
 
 Alternatif olarak `docker-compose.portainer.yml` dosyasını tüm servislerle birlikte
@@ -71,7 +71,7 @@ docker run -d \
   -e SECRET_KEY=guclu-anahtar \
   -e RUSTDESK_DB=/rustdesk-data/db_v2.sqlite3 \
   -e ADMIN_PASSWORD=sifreniz \
-  ghcr.io/GITHUB_USER/rustdeskapi:latest
+  ghcr.io/radamath/rustdeskapi:latest
 ```
 
 ---

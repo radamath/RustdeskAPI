@@ -7,8 +7,7 @@ version: "3.8"
 #  gösterin veya bu dosyayı "Web editor"e yapıştırın.
 #
 #  Kullanım:
-#    1. GITHUB_USER değerini kendi GitHub kullanıcı adınızla değiştirin.
-#    2. Ortam değişkenlerini (SECRET_KEY, ADMIN_PASSWORD) değiştirin.
+#    1. Ortam değişkenlerini (SECRET_KEY, ADMIN_PASSWORD) değiştirin.
 #    3. shared-net ağının daha önceden oluşturulmuş olması gerekir:
 #         docker network create shared-net
 # =====================================================================
@@ -43,7 +42,7 @@ services:
 
   rustdesk-api:
     # ── Değiştirin: GITHUB_USER → kendi GitHub kullanıcı adınız ──
-    image: ghcr.io/GITHUB_USER/rustdeskapi:latest
+    image: ghcr.io/radamath/rustdeskapi:latest
     container_name: rustdesk-api
     restart: unless-stopped
     ports:
