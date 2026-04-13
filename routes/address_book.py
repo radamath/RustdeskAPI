@@ -3,8 +3,7 @@
 import json
 from flask import Blueprint, jsonify, request
 
-import rustdesk_db
-from models import AddressBook, Heartbeat, RustdeskUser, db
+from models import AddressBook, db
 from routes.auth import admin_required, log_audit
 
 bp = Blueprint("address_book", __name__, url_prefix="/admin/api/address-books")
@@ -38,61 +37,13 @@ def list_address_books():
 @bp.route("/<int:ab_id>", methods=["GET"])
 @admin_required
 def get_address_book(ab_id):
-    from datetime import datetime, timedelta
+    from routes.peer_enrichment import enrich_peers
 
     ab = db.session.get(AddressBook, ab_id)
     if not ab:
         return jsonify({"error": "Adres defteri bulunamadı"}), 404
 
-    peers = json.loads(ab.peers_json or "[]")
-    peer_ids = [p.get("id") if isinstance(p, dict) else p for p in peers]
-
-    hb_map = {}
-    if peer_ids:
-        for hb in Heartbeat.query.filter(Heartbeat.id.in_(peer_ids)).all():
-            hb_map[hb.id] = hb
-
-    rd_peer_map = {}
-    for pid in peer_ids:
-        try:
-            rd = rustdesk_db.get_peer(pid)
-            if rd:
-                rd_peer_map[pid] = rd
-        except Exception:
-            pass
-
-    now_naive = datetime.utcnow()
-    threshold = now_naive - timedelta(minutes=5)
-    enriched = []
-    for p in peers:
-        pid = p.get("id") if isinstance(p, dict) else p
-        entry = dict(p) if isinstance(p, dict) else {"id": pid}
-
-        hb = hb_map.get(pid)
-        if hb:
-            entry["ip"] = hb.ip or ""
-            try:
-                ls = hb.last_seen.replace(tzinfo=None) if hb.last_seen and hb.last_seen.tzinfo else hb.last_seen
-                entry["online"] = ls >= threshold if ls else False
-            except Exception:
-                entry["online"] = False
-            entry["last_seen"] = hb.last_seen.isoformat() if hb.last_seen else None
-        else:
-            entry.setdefault("ip", "")
-            entry["online"] = False
-            entry["last_seen"] = None
-
-        rd = rd_peer_map.get(pid)
-        if rd:
-            info = rd.get("info", {})
-            if not entry.get("hostname") and info.get("hostname"):
-                entry["hostname"] = info["hostname"]
-            if not entry.get("platform") and info.get("os"):
-                entry["platform"] = info["os"]
-
-        entry.setdefault("hostname", "")
-        entry.setdefault("platform", "")
-        enriched.append(entry)
+    enriched = enrich_peers(ab.peers_json)
 
     return jsonify({
         "id": ab.id,

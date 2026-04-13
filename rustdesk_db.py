@@ -29,14 +29,54 @@ def _table_exists(cursor) -> bool:
     return cursor.fetchone() is not None
 
 
+def _get_columns(cursor):
+    cursor.execute("PRAGMA table_info(peer)")
+    return {row["name"] for row in cursor.fetchall()}
+
+
+def _parse_info(raw):
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _safe_str(val, encoding="utf-8"):
+    if isinstance(val, bytes):
+        return val.decode(encoding, errors="replace")
+    return str(val or "")
+
+
+def _row_to_peer(row, columns):
+    info = _parse_info(row["info"])
+    peer = {
+        "id": row["id"],
+        "uuid": row["uuid"].hex() if isinstance(row["uuid"], bytes) else str(row["uuid"] or ""),
+        "created_at": row["created_at"],
+        "user": _safe_str(row["user"]),
+        "status": row["status"],
+        "note": row["note"] or "",
+        "info": info,
+    }
+    if "ip" in columns:
+        peer["ip"] = _safe_str(row["ip"]) if row["ip"] else ""
+    if "last_online" in columns:
+        peer["last_online"] = row["last_online"] or ""
+    return peer
+
+
 def get_all_peers(search: str = "", page: int = 1, per_page: int = 50):
     with _conn() as c:
         cur = c.cursor()
         if not _table_exists(cur):
             return [], 0
 
+        columns = _get_columns(cur)
+
         count_sql = "SELECT COUNT(*) FROM peer"
-        data_sql = "SELECT id, uuid, pk, created_at, \"user\", status, note, info FROM peer"
+        data_sql = "SELECT * FROM peer"
 
         params = []
         if search:
@@ -52,23 +92,7 @@ def get_all_peers(search: str = "", page: int = 1, per_page: int = 50):
         params.extend([per_page, (page - 1) * per_page])
         cur.execute(data_sql, params)
 
-        peers = []
-        for row in cur.fetchall():
-            info = {}
-            try:
-                info = json.loads(row["info"]) if row["info"] else {}
-            except (json.JSONDecodeError, TypeError):
-                pass
-            peers.append({
-                "id": row["id"],
-                "uuid": row["uuid"].hex() if isinstance(row["uuid"], bytes) else str(row["uuid"] or ""),
-                "created_at": row["created_at"],
-                "user": row["user"].decode("utf-8", errors="replace") if isinstance(row["user"], bytes) else str(row["user"] or ""),
-                "status": row["status"],
-                "note": row["note"] or "",
-                "info": info,
-            })
-        return peers, total
+        return [_row_to_peer(row, columns) for row in cur.fetchall()], total
 
 
 def get_peer(peer_id: str):
@@ -76,27 +100,13 @@ def get_peer(peer_id: str):
         cur = c.cursor()
         if not _table_exists(cur):
             return None
-        cur.execute(
-            'SELECT id, uuid, pk, created_at, "user", status, note, info FROM peer WHERE id = ?',
-            (peer_id,),
-        )
+
+        columns = _get_columns(cur)
+        cur.execute("SELECT * FROM peer WHERE id = ?", (peer_id,))
         row = cur.fetchone()
         if not row:
             return None
-        info = {}
-        try:
-            info = json.loads(row["info"]) if row["info"] else {}
-        except (json.JSONDecodeError, TypeError):
-            pass
-        return {
-            "id": row["id"],
-            "uuid": row["uuid"].hex() if isinstance(row["uuid"], bytes) else str(row["uuid"] or ""),
-            "created_at": row["created_at"],
-            "user": row["user"].decode("utf-8", errors="replace") if isinstance(row["user"], bytes) else str(row["user"] or ""),
-            "status": row["status"],
-            "note": row["note"] or "",
-            "info": info,
-        }
+        return _row_to_peer(row, columns)
 
 
 def get_peer_count():

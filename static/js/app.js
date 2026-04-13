@@ -169,6 +169,47 @@ function closeModal(overlay) {
   overlay?.remove();
 }
 
+function buildPeerTable(peers) {
+  const peerTable = h('div', { className: 'max-h-80 overflow-y-auto rounded-lg border border-slate-700' });
+  const peerHeader = h('div', { className: 'grid grid-cols-12 gap-2 px-4 py-2 bg-slate-700/60 text-xs font-semibold text-slate-400 uppercase tracking-wider sticky top-0' });
+  peerHeader.appendChild(h('span', { className: 'col-span-1' }, ''));
+  peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'ID'));
+  peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'Bilgisayar'));
+  peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'Lokal IP'));
+  peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'Global IP'));
+  peerHeader.appendChild(h('span', { className: 'col-span-1' }, 'Platform'));
+  peerHeader.appendChild(h('span', { className: 'col-span-2 text-right' }, 'İşlem'));
+  peerTable.appendChild(peerHeader);
+
+  for (const p of peers) {
+    const pid = typeof p === 'string' ? p : (p.id || '');
+    const hostname = (typeof p === 'object' ? p.hostname : '') || '-';
+    const localIp = (typeof p === 'object' ? p.local_ip : '') || '-';
+    const globalIp = (typeof p === 'object' ? p.ip : '') || '-';
+    const platform = (typeof p === 'object' ? (p.platform || '') : '') || '-';
+    const online = typeof p === 'object' ? p.online : false;
+
+    const peerRow = h('div', { className: 'grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-slate-700/50 items-center text-sm hover:bg-slate-700/30 transition-colors' });
+    const statusDot = h('span', { className: `inline-block w-2.5 h-2.5 rounded-full ${online ? 'bg-green-500 shadow-green-500/50 shadow-sm' : 'bg-slate-600'}` });
+    peerRow.appendChild(h('span', { className: 'col-span-1 flex items-center' }, statusDot));
+    peerRow.appendChild(h('span', { className: 'col-span-2 text-white font-mono text-xs' }, pid));
+    peerRow.appendChild(h('span', { className: 'col-span-2 text-slate-300 text-xs truncate' }, hostname));
+    peerRow.appendChild(h('span', { className: 'col-span-2 text-green-400 font-mono text-xs' }, localIp));
+    peerRow.appendChild(h('span', { className: 'col-span-2 text-slate-500 font-mono text-xs' }, globalIp));
+    peerRow.appendChild(h('span', { className: 'col-span-1 text-slate-400 text-xs truncate' }, platform));
+
+    const connectBtn = h('button', {
+      className: 'btn btn-primary text-xs px-3 py-1',
+      onclick: () => { window.location.href = `rustdesk://connection/new/${pid}`; },
+    });
+    connectBtn.innerHTML = '<svg class="w-3.5 h-3.5 inline mr-1 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>Bağlan';
+    peerRow.appendChild(h('span', { className: 'col-span-2 text-right' }, connectBtn));
+
+    peerTable.appendChild(peerRow);
+  }
+  return peerTable;
+}
+
 function searchBar(placeholder, onSearch) {
   const wrap = h('div', { className: 'flex gap-2 mb-4' });
   const input = h('input', { className: 'input flex-1', placeholder, type: 'text' });
@@ -413,41 +454,7 @@ Pages.users = async (el) => {
     peerSection.appendChild(h('h4', { className: 'text-sm font-semibold text-slate-300' }, `Adres Defteri (${data.peers?.length || 0} cihaz)`));
 
     if (data.peers?.length) {
-      const peerTable = h('div', { className: 'max-h-80 overflow-y-auto rounded-lg border border-slate-700' });
-      const peerHeader = h('div', { className: 'grid grid-cols-12 gap-2 px-4 py-2 bg-slate-700/60 text-xs font-semibold text-slate-400 uppercase tracking-wider sticky top-0' });
-      peerHeader.appendChild(h('span', { className: 'col-span-1' }, ''));
-      peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'ID'));
-      peerHeader.appendChild(h('span', { className: 'col-span-3' }, 'Bilgisayar Adı'));
-      peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'IP Adresi'));
-      peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'Platform'));
-      peerHeader.appendChild(h('span', { className: 'col-span-2 text-right' }, 'İşlem'));
-      peerTable.appendChild(peerHeader);
-
-      for (const p of data.peers) {
-        const pid = typeof p === 'string' ? p : (p.id || '');
-        const hostname = (typeof p === 'object' ? p.hostname : '') || '-';
-        const ip = (typeof p === 'object' ? p.ip : '') || '-';
-        const platform = (typeof p === 'object' ? (p.platform || '') : '') || '-';
-        const online = typeof p === 'object' ? p.online : false;
-
-        const peerRow = h('div', { className: 'grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-slate-700/50 items-center text-sm hover:bg-slate-700/30 transition-colors' });
-        const statusDot = h('span', { className: `inline-block w-2.5 h-2.5 rounded-full ${online ? 'bg-green-500 shadow-green-500/50 shadow-sm' : 'bg-slate-600'}` });
-        peerRow.appendChild(h('span', { className: 'col-span-1 flex items-center' }, statusDot));
-        peerRow.appendChild(h('span', { className: 'col-span-2 text-white font-mono text-xs' }, pid));
-        peerRow.appendChild(h('span', { className: 'col-span-3 text-slate-300' }, hostname));
-        peerRow.appendChild(h('span', { className: 'col-span-2 text-blue-400 font-mono text-xs' }, ip));
-        peerRow.appendChild(h('span', { className: 'col-span-2 text-slate-400 text-xs' }, platform));
-
-        const connectBtn = h('button', {
-          className: 'btn btn-primary text-xs px-3 py-1',
-          onclick: () => { window.location.href = `rustdesk://connection/new/${pid}`; },
-        });
-        connectBtn.innerHTML = '<svg class="w-3.5 h-3.5 inline mr-1 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>Bağlan';
-        peerRow.appendChild(h('span', { className: 'col-span-2 text-right' }, connectBtn));
-
-        peerTable.appendChild(peerRow);
-      }
-      peerSection.appendChild(peerTable);
+      peerSection.appendChild(buildPeerTable(data.peers));
     } else {
       peerSection.appendChild(h('div', { className: 'text-center py-6 text-slate-500' }, 'Adres defterinde kayıtlı cihaz yok'));
     }
@@ -674,42 +681,7 @@ Pages.addressBooks = async (el) => {
     peerSection.appendChild(h('h4', { className: 'text-sm font-semibold text-slate-300' }, `Cihazlar (${data.peers?.length || 0})`));
 
     if (data.peers?.length) {
-      const peerTable = h('div', { className: 'max-h-80 overflow-y-auto rounded-lg border border-slate-700' });
-      const peerHeader = h('div', { className: 'grid grid-cols-12 gap-2 px-4 py-2 bg-slate-700/60 text-xs font-semibold text-slate-400 uppercase tracking-wider sticky top-0' });
-      peerHeader.appendChild(h('span', { className: 'col-span-1' }, ''));
-      peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'ID'));
-      peerHeader.appendChild(h('span', { className: 'col-span-3' }, 'Bilgisayar Adı'));
-      peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'IP Adresi'));
-      peerHeader.appendChild(h('span', { className: 'col-span-2' }, 'Platform'));
-      peerHeader.appendChild(h('span', { className: 'col-span-2 text-right' }, 'İşlem'));
-      peerTable.appendChild(peerHeader);
-
-      for (const p of data.peers) {
-        const pid = typeof p === 'string' ? p : (p.id || '');
-        const hostname = (typeof p === 'object' ? p.hostname : '') || '-';
-        const ip = (typeof p === 'object' ? p.ip : '') || '-';
-        const platform = (typeof p === 'object' ? (p.platform || '') : '') || '-';
-        const online = typeof p === 'object' ? p.online : false;
-
-        const peerRow = h('div', { className: 'grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-slate-700/50 items-center text-sm hover:bg-slate-700/30 transition-colors' });
-
-        const statusDot = h('span', { className: `inline-block w-2.5 h-2.5 rounded-full ${online ? 'bg-green-500 shadow-green-500/50 shadow-sm' : 'bg-slate-600'}` });
-        peerRow.appendChild(h('span', { className: 'col-span-1 flex items-center' }, statusDot));
-        peerRow.appendChild(h('span', { className: 'col-span-2 text-white font-mono text-xs' }, pid));
-        peerRow.appendChild(h('span', { className: 'col-span-3 text-slate-300' }, hostname));
-        peerRow.appendChild(h('span', { className: 'col-span-2 text-blue-400 font-mono text-xs' }, ip));
-        peerRow.appendChild(h('span', { className: 'col-span-2 text-slate-400 text-xs' }, platform));
-
-        const connectBtn = h('button', {
-          className: 'btn btn-primary text-xs px-3 py-1',
-          onclick: () => { window.location.href = `rustdesk://connection/new/${pid}`; },
-        });
-        connectBtn.innerHTML = '<svg class="w-3.5 h-3.5 inline mr-1 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>Bağlan';
-        peerRow.appendChild(h('span', { className: 'col-span-2 text-right' }, connectBtn));
-
-        peerTable.appendChild(peerRow);
-      }
-      peerSection.appendChild(peerTable);
+      peerSection.appendChild(buildPeerTable(data.peers));
     } else {
       peerSection.appendChild(h('div', { className: 'text-center py-6 text-slate-500' }, 'Bu adres defterinde kayıtlı cihaz yok'));
     }

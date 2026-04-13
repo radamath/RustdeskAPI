@@ -1,7 +1,6 @@
 """Admin endpoints for RustDesk user management."""
 
 import json
-from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
@@ -221,6 +220,8 @@ def delete_user(user_id):
 @bp.route("/<int:user_id>/address-book", methods=["GET"])
 @admin_required
 def user_address_book(user_id):
+    from routes.peer_enrichment import enrich_peers
+
     u = db.session.get(RustdeskUser, user_id)
     if not u:
         return jsonify({"error": "Kullanıcı bulunamadı"}), 404
@@ -229,56 +230,7 @@ def user_address_book(user_id):
     if not book:
         return jsonify({"peers": [], "tags": []})
 
-    peers = json.loads(book.peers_json or "[]")
-    peer_ids = [p.get("id") if isinstance(p, dict) else p for p in peers]
-
-    hb_map = {}
-    if peer_ids:
-        for hb in Heartbeat.query.filter(Heartbeat.id.in_(peer_ids)).all():
-            hb_map[hb.id] = hb
-
-    rd_map = {}
-    for pid in peer_ids:
-        try:
-            rd = rustdesk_db.get_peer(pid)
-            if rd:
-                rd_map[pid] = rd
-        except Exception:
-            pass
-
-    now_naive = datetime.utcnow()
-    threshold = now_naive - timedelta(minutes=5)
-    enriched = []
-    for p in peers:
-        pid = p.get("id") if isinstance(p, dict) else p
-        entry = dict(p) if isinstance(p, dict) else {"id": pid}
-
-        hb = hb_map.get(pid)
-        if hb:
-            entry["ip"] = hb.ip or ""
-            try:
-                ls = hb.last_seen.replace(tzinfo=None) if hb.last_seen and hb.last_seen.tzinfo else hb.last_seen
-                entry["online"] = ls >= threshold if ls else False
-            except Exception:
-                entry["online"] = False
-            entry["last_seen"] = hb.last_seen.isoformat() if hb.last_seen else None
-        else:
-            entry.setdefault("ip", "")
-            entry["online"] = False
-            entry["last_seen"] = None
-
-        rd = rd_map.get(pid)
-        if rd:
-            info = rd.get("info", {})
-            if not entry.get("hostname") and info.get("hostname"):
-                entry["hostname"] = info["hostname"]
-            if not entry.get("platform") and info.get("os"):
-                entry["platform"] = info["os"]
-
-        entry.setdefault("hostname", "")
-        entry.setdefault("platform", "")
-        enriched.append(entry)
-
+    enriched = enrich_peers(book.peers_json)
     return jsonify({
         "peers": enriched,
         "tags": json.loads(book.tags_json or "[]"),

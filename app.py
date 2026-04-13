@@ -49,6 +49,10 @@ def _migrate_schema():
         ("admin_user", "totp_enabled", "BOOLEAN DEFAULT 0"),
         ("heartbeat", "ip", "VARCHAR(45) DEFAULT ''"),
         ("rustdesk_user", "role", "VARCHAR(20) DEFAULT 'user'"),
+        ("heartbeat", "local_ip", "VARCHAR(45) DEFAULT ''"),
+        ("heartbeat", "hostname", "VARCHAR(200) DEFAULT ''"),
+        ("heartbeat", "os_info", "VARCHAR(200) DEFAULT ''"),
+        ("heartbeat", "version", "VARCHAR(50) DEFAULT ''"),
     ]
     for table, column, col_type in migrations:
         try:

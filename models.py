@@ -140,7 +140,11 @@ class AuditLog(db.Model):
 
 class Heartbeat(db.Model):
     __tablename__ = "heartbeat"
-    id = db.Column(db.String(100), primary_key=True)  # peer uuid
+    id = db.Column(db.String(100), primary_key=True)  # peer id
     uuid = db.Column(db.String(100), default="")
     ip = db.Column(db.String(45), default="")
+    local_ip = db.Column(db.String(45), default="")
+    hostname = db.Column(db.String(200), default="")
+    os_info = db.Column(db.String(200), default="")
+    version = db.Column(db.String(50), default="")
     last_seen = db.Column(db.DateTime, default=_utcnow)

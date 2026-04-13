@@ -111,8 +111,20 @@ def heartbeat():
             hb.ip = client_ip
             if (now - hb.last_seen).total_seconds() > 30:
                 hb.last_seen = now
+            if data.get("local_addr"):
+                hb.local_ip = _extract_ip(data["local_addr"])
+            if data.get("hostname"):
+                hb.hostname = data["hostname"]
+            if data.get("version"):
+                hb.version = data["version"]
         else:
-            hb = Heartbeat(id=uid, uuid=peer_uuid or uid, ip=client_ip, last_seen=now)
+            hb = Heartbeat(
+                id=uid, uuid=peer_uuid or uid,
+                ip=client_ip, last_seen=now,
+                local_ip=_extract_ip(data.get("local_addr", "")),
+                hostname=data.get("hostname", ""),
+                version=data.get("version", ""),
+            )
             db.session.add(hb)
         db.session.commit()
 
@@ -125,11 +137,56 @@ def heartbeat():
     return jsonify({})
 
 
+def _extract_ip(addr_str):
+    """Extract IP from socket address like '192.168.1.10:12345' or plain IP."""
+    if not addr_str:
+        return ""
+    s = str(addr_str)
+    if "]:" in s:
+        return s.split("]:")[0].lstrip("[")
+    if s.count(":") == 1:
+        return s.rsplit(":", 1)[0]
+    return s
+
+
 # ── Sysinfo ─────────────────────────────────────────────────────────
 
 @bp.route("/sysinfo", methods=["POST"])
 def sysinfo():
+    data = request.get_json(silent=True) or {}
+    uid = data.get("id", "")
+    if uid:
+        hb = db.session.get(Heartbeat, uid)
+        if hb:
+            if data.get("hostname"):
+                hb.hostname = data["hostname"]
+            if data.get("os"):
+                hb.os_info = data["os"]
+            if data.get("version"):
+                hb.version = data["version"]
+            if data.get("local_ip"):
+                hb.local_ip = data["local_ip"]
+            if data.get("local_addr"):
+                hb.local_ip = _extract_ip(data["local_addr"])
+            if data.get("ip"):
+                lip = _extract_ip(data["ip"])
+                if lip and _is_private_ip(lip):
+                    hb.local_ip = lip
+            db.session.commit()
     return jsonify({"data": "SYSINFO_UPDATED"})
+
+
+def _is_private_ip(ip_str):
+    """Check if an IP is a private/local address."""
+    try:
+        parts = ip_str.split(".")
+        if len(parts) != 4:
+            return False
+        a, b = int(parts[0]), int(parts[1])
+        return (a == 10 or (a == 172 and 16 <= b <= 31) or
+                (a == 192 and b == 168) or a == 127)
+    except (ValueError, IndexError):
+        return False
 
 
 @bp.route("/sysinfo_ver", methods=["POST"])
