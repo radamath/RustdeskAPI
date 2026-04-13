@@ -1,4 +1,6 @@
 const API = {
+  _silent: false,
+
   async request(method, url, body = null) {
     const opts = {
       method,
@@ -8,12 +10,18 @@ const API = {
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(url, opts);
     if (res.status === 401 && !url.includes('/login')) {
-      window.location.hash = '#/login';
+      if (!this._silent) window.location.hash = '#/login';
       throw new Error('Unauthorized');
     }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
+  },
+
+  async silentGet(url) {
+    this._silent = true;
+    try { return await this.request('GET', url); }
+    finally { this._silent = false; }
   },
 
   get(url) { return this.request('GET', url); },
@@ -24,7 +32,7 @@ const API = {
   // Admin auth
   login(username, password) { return this.post('/admin/api/login', { username, password }); },
   logout() { return this.post('/admin/api/logout'); },
-  me() { return this.get('/admin/api/me'); },
+  me() { return this.silentGet('/admin/api/me'); },
 
   // Dashboard
   dashboard() { return this.get('/admin/api/dashboard'); },
