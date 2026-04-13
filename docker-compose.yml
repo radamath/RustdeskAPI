@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  hbbs:
+    image: rustdesk/rustdesk-server:latest
+    container_name: rustdesk-hbbs
+    command: hbbs
+    restart: unless-stopped
+    ports:
+      - "21115:21115"
+      - "21116:21116"
+      - "21116:21116/udp"
+      - "21118:21118"
+    volumes:
+      - rustdesk_data:/root
+    networks:
+      - shared-net
+
+  hbbr:
+    image: rustdesk/rustdesk-server:latest
+    container_name: rustdesk-hbbr
+    command: hbbr
+    restart: unless-stopped
+    ports:
+      - "21117:21117"
+    volumes:
+      - rustdesk_data:/root
+    networks:
+      - shared-net
+
+  rustdesk-api:
+    build: .
+    container_name: rustdesk-api
+    restart: unless-stopped
+    ports:
+      - "21114:21114"
+    volumes:
+      - rustdesk_data:/rustdesk-data:ro
+      - api_data:/app/data
+    environment:
+      - SECRET_KEY=change-me-in-production
+      - RUSTDESK_DB=/rustdesk-data/db_v2.sqlite3
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin123
+    depends_on:
+      - hbbs
+    networks:
+      - shared-net
+
+volumes:
+  rustdesk_data:
+  api_data:
+
+networks:
+  shared-net:
+    external: true
