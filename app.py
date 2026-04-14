@@ -17,9 +17,9 @@ def create_app():
     import rustdesk_db
     rustdesk_db.init(app.config["RUSTDESK_DB_PATH"])
 
-    from routes import auth, api, devices, users, groups, address_book, audit, settings
+    from routes import auth, api, devices, users, groups, address_book, audit, settings, deploy
     for bp in (auth.bp, api.bp, devices.bp, users.bp, groups.bp,
-               address_book.bp, audit.bp, settings.bp):
+               address_book.bp, audit.bp, settings.bp, deploy.bp):
         app.register_blueprint(bp)
 
     with app.app_context():

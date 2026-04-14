@@ -159,8 +159,31 @@ def update_device_tags(peer_id):
         tag.group_id = data["group_id"]
 
     db.session.commit()
+
+    if "alias" in data:
+        _sync_alias_to_address_books(peer_id, data["alias"])
+
     log_audit("device_update", f"Cihaz güncellendi: {peer_id}")
     return jsonify({"ok": True})
+
+
+def _sync_alias_to_address_books(peer_id, alias):
+    """Push the alias into every address book that contains this peer,
+    so the RustDesk client shows the name in its UI."""
+    from models import AddressBook
+    books = AddressBook.query.all()
+    for book in books:
+        peers = json.loads(book.peers_json or "[]")
+        changed = False
+        for p in peers:
+            if isinstance(p, dict) and p.get("id") == peer_id:
+                if p.get("alias") != alias:
+                    p["alias"] = alias
+                    changed = True
+        if changed:
+            book.peers_json = json.dumps(peers)
+    if books:
+        db.session.commit()
 
 
 @bp.route("/<peer_id>", methods=["DELETE"])

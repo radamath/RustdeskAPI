@@ -5,7 +5,7 @@ import json
 from flask import Blueprint, jsonify, request
 
 import rustdesk_db
-from models import AddressBook, Heartbeat, RustdeskUser, UserToken, db
+from models import AddressBook, Heartbeat, PeerTag, RustdeskUser, UserToken, db
 from routes.auth import admin_required, hash_password, log_audit
 
 bp = Blueprint("users", __name__, url_prefix="/admin/api/users")
@@ -27,6 +27,7 @@ def sync_admin_address_books(exclude_peer_id=None):
     all_peers_raw, _ = rustdesk_db.get_all_peers(page=1, per_page=999999)
 
     heartbeats = {h.id: h for h in Heartbeat.query.all()}
+    alias_map = {t.peer_id: t.alias for t in PeerTag.query.filter(PeerTag.alias != "").all()}
 
     system_peers = []
     for rp in all_peers_raw:
@@ -37,7 +38,7 @@ def sync_admin_address_books(exclude_peer_id=None):
             "id": rp["id"],
             "hostname": info.get("hostname", ""),
             "platform": info.get("os", ""),
-            "alias": "",
+            "alias": alias_map.get(rp["id"], ""),
             "tags": [],
         }
         hb = heartbeats.get(rp["id"])
@@ -53,7 +54,7 @@ def sync_admin_address_books(exclude_peer_id=None):
                 "id": hb_id,
                 "hostname": "",
                 "platform": "",
-                "alias": "",
+                "alias": alias_map.get(hb_id, ""),
                 "tags": [],
                 "ip": hb.ip or "",
             })
@@ -77,13 +78,16 @@ def sync_admin_address_books(exclude_peer_id=None):
             (p.get("id") if isinstance(p, dict) else p) for p in cleaned
         }
 
+        for p in cleaned:
+            if isinstance(p, dict) and p.get("id") in alias_map:
+                p["alias"] = alias_map[p["id"]]
+
         merged = list(cleaned)
         for sp in system_peers:
             if sp["id"] not in existing_ids:
                 merged.append(sp)
 
-        if len(merged) != len(existing) or len(cleaned) != len(existing):
-            book.peers_json = json.dumps(merged)
+        book.peers_json = json.dumps(merged)
 
     db.session.commit()
 

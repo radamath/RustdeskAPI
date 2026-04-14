@@ -91,4 +91,13 @@ const API = {
   createApiKey(data) { return this.post('/admin/api/api-keys', data); },
   deleteApiKey(id) { return this.del(`/admin/api/api-keys/${id}`); },
   toggleApiKey(id) { return this.post(`/admin/api/api-keys/${id}/toggle`); },
+
+  // Deploy
+  deployConfig() { return this.get('/admin/api/deploy/config'); },
+  updateDeployConfig(data) { return this.put('/admin/api/deploy/config', data); },
+  async deployScript(platform, password = 'random') {
+    const res = await fetch(`/admin/api/deploy/script/${platform}?password=${encodeURIComponent(password)}`, { credentials: 'include' });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.error || `HTTP ${res.status}`); }
+    return res.text();
+  },
 };

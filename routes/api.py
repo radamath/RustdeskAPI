@@ -10,14 +10,34 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 
 from models import (
-    AddressBook, ConnectionLog, FileAudit, Heartbeat, RustdeskUser,
-    UserToken, db,
+    AddressBook, ConnectionLog, FileAudit, Heartbeat, PeerTag,
+    RustdeskUser, UserToken, db,
 )
 from routes.auth import (
     check_password, create_client_jwt, decode_client_jwt, hash_password,
 )
 
 bp = Blueprint("api", __name__, url_prefix="/api")
+
+
+def _inject_server_aliases(peers):
+    """Overlay PeerTag aliases onto address-book peers so the RustDesk
+    client always sees admin-set names, even after a client push."""
+    if not peers:
+        return peers
+    peer_ids = [p.get("id") for p in peers if isinstance(p, dict) and p.get("id")]
+    if not peer_ids:
+        return peers
+    alias_map = {
+        t.peer_id: t.alias
+        for t in PeerTag.query.filter(PeerTag.peer_id.in_(peer_ids), PeerTag.alias != "").all()
+    }
+    if not alias_map:
+        return peers
+    for p in peers:
+        if isinstance(p, dict) and p.get("id") in alias_map:
+            p["alias"] = alias_map[p["id"]]
+    return peers
 
 
 def _get_current_user():
@@ -251,8 +271,10 @@ def ab_get():
     book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
     if not book:
         return jsonify({"data": json.dumps({"peers": [], "tags": []})})
+    peers = json.loads(book.peers_json or "[]")
+    _inject_server_aliases(peers)
     ab_obj = {
-        "peers": json.loads(book.peers_json or "[]"),
+        "peers": peers,
         "tags": json.loads(book.tags_json or "[]"),
     }
     return jsonify({"data": json.dumps(ab_obj)})
@@ -279,7 +301,9 @@ def ab_update():
         db.session.add(book)
 
     if "peers" in ab_data:
-        book.peers_json = json.dumps(ab_data["peers"])
+        incoming_peers = ab_data["peers"]
+        _inject_server_aliases(incoming_peers)
+        book.peers_json = json.dumps(incoming_peers)
     if "tags" in ab_data:
         book.tags_json = json.dumps(ab_data["tags"])
     db.session.commit()
@@ -294,9 +318,11 @@ def ab_personal():
     book = AddressBook.query.filter_by(user_id=user.id, name="default").first()
     if not book:
         return jsonify({"data": json.dumps({"peers": [], "tags": [], "guid": ""})})
+    peers = json.loads(book.peers_json or "[]")
+    _inject_server_aliases(peers)
     ab_obj = {
         "guid": book.guid,
-        "peers": json.loads(book.peers_json or "[]"),
+        "peers": peers,
         "tags": json.loads(book.tags_json or "[]"),
     }
     return jsonify({"data": json.dumps(ab_obj)})
@@ -327,6 +353,7 @@ def ab_peers():
     if not book:
         return jsonify({"data": [], "total": 0})
     peers = json.loads(book.peers_json or "[]")
+    _inject_server_aliases(peers)
     return jsonify({"data": peers, "total": len(peers)})
 
 
@@ -354,6 +381,9 @@ def ab_peer_add(guid):
     new_peer = data.get("data", data)
     if isinstance(new_peer, dict):
         peer_id = new_peer.get("id", "")
+        tag = PeerTag.query.filter_by(peer_id=peer_id).first()
+        if tag and tag.alias:
+            new_peer["alias"] = tag.alias
         peers = [p for p in peers if (p.get("id") if isinstance(p, dict) else p) != peer_id]
         peers.append(new_peer)
     book.peers_json = json.dumps(peers)
@@ -381,6 +411,7 @@ def ab_peer_update(guid):
             else:
                 peers[i] = updated
             break
+    _inject_server_aliases(peers)
     book.peers_json = json.dumps(peers)
     db.session.commit()
     return jsonify({})
@@ -494,13 +525,22 @@ def ab_tag_delete(guid):
 @bp.route("/audit/conn", methods=["POST"])
 def audit_conn():
     data = request.get_json(silent=True) or {}
+
+    from_peer = data.get("id", data.get("from", data.get("from_peer", "")))
+
+    peer_field = data.get("peer", data.get("to", data.get("to_peer", "")))
+    if isinstance(peer_field, list):
+        to_peer = peer_field[0] if peer_field else ""
+    else:
+        to_peer = str(peer_field) if peer_field else ""
+
     log = ConnectionLog(
         conn_id=str(data.get("conn_id", "")),
-        from_peer=data.get("from", data.get("from_peer", "")),
-        to_peer=data.get("to", data.get("to_peer", "")),
+        from_peer=str(from_peer),
+        to_peer=str(to_peer),
         action=data.get("action", "connect"),
         ip=data.get("ip", request.remote_addr or ""),
-        session_id=str(data.get("session_id", "")),
+        session_id=str(data.get("session_id", data.get("uuid", ""))),
     )
     db.session.add(log)
     db.session.commit()

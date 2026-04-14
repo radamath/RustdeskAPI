@@ -109,11 +109,20 @@ const App = {
     Router.register('/settings', Pages.settings);
     Router.register('/api-keys', Pages.apiKeys);
     Router.register('/security', Pages.security);
+    Router.register('/deploy', Pages.deploy);
     Router.register('/login', () => App.showLogin());
   },
 };
 
 // ── Helper functions ───────────────────────────────────────────────
+
+function toast(msg, duration = 3000) {
+  const el = document.createElement('div');
+  el.textContent = msg;
+  el.className = 'fixed bottom-6 right-6 z-[9999] bg-green-600 text-white px-5 py-3 rounded-lg shadow-lg text-sm font-medium transition-opacity duration-300';
+  document.body.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, duration);
+}
 
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -359,7 +368,7 @@ Pages.devices = async (el) => {
       row.appendChild(h('span', { className: 'col-span-1 flex items-center' }, statusDot));
       row.appendChild(h('span', { className: 'col-span-1 text-white font-mono text-xs' }, d.id));
       row.appendChild(h('span', { className: 'col-span-2 text-slate-300 text-xs truncate' }, d.hostname || '-'));
-      row.appendChild(h('span', { className: 'col-span-1 text-slate-400 text-xs truncate' }, d.alias || '-'));
+      row.appendChild(h('span', { className: `col-span-1 text-xs truncate ${d.alias ? 'text-amber-400 font-medium' : 'text-slate-500'}` }, d.alias || '-'));
       row.appendChild(h('span', { className: 'col-span-2 text-green-400 font-mono text-xs' }, d.local_ip || '-'));
       row.appendChild(h('span', { className: 'col-span-2 text-slate-500 font-mono text-xs' }, d.global_ip || '-'));
       row.appendChild(h('span', { className: 'col-span-1 text-slate-400 text-xs truncate' }, d.platform || '-'));
@@ -400,11 +409,15 @@ Pages.devices = async (el) => {
     const m = modal(`Cihaz: ${d.id}`, form, () => closeModal(m));
     form.querySelector('#ed-cancel').onclick = () => closeModal(m);
     form.querySelector('#ed-save').onclick = async () => {
+      const saveBtn = form.querySelector('#ed-save');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Kaydediliyor...';
       await API.updateDeviceTags(d.id, {
         alias: form.querySelector('#ed-alias').value,
         notes: form.querySelector('#ed-notes').value,
       });
       closeModal(m);
+      toast('Kaydedildi – takma ad tüm adres defterlerine senkronize edildi');
       load();
     };
   }
@@ -988,6 +1001,226 @@ Pages.security = async (el) => {
     card.appendChild(setupBtn);
   }
   el.appendChild(card);
+};
+
+// ── Client Deploy ──────────────────────────────────────────────────
+
+Pages.deploy = async (el) => {
+  const cfg = await API.deployConfig();
+
+  el.innerHTML = '';
+  el.appendChild(h('h1', { className: 'text-2xl font-bold text-white mb-6' }, 'Client Dağıtımı'));
+
+  const desc = h('p', { className: 'text-slate-400 mb-6 text-sm leading-relaxed' });
+  desc.textContent = 'Bu sayfa RustDesk istemcisini uzak bilgisayarlara otomatik kurmak için hazır scriptler üretir. Script çalıştırıldığında istemci indirilir, kurulur ve sunucu ayarları uygulanır. Cihaz otomatik olarak admin adres defterine düşer.';
+  el.appendChild(desc);
+
+  // ── Server config form ──
+  const configCard = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6' });
+  configCard.innerHTML = `
+    <h2 class="text-lg font-semibold text-white mb-4">Sunucu Ayarları</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">Sunucu Adresi (ID Server) *</label>
+        <input id="dc-host" class="input w-full" placeholder="rustdesk.example.com" value="${cfg.host || ''}">
+      </div>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">API URL</label>
+        <input id="dc-api" class="input w-full" placeholder="http://rustdesk.example.com:21114" value="${cfg.api || ''}">
+      </div>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">Relay Server (opsiyonel)</label>
+        <input id="dc-relay" class="input w-full" placeholder="" value="${cfg.relay || ''}">
+      </div>
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm text-slate-400 mb-1">Public Key (salt okunur)</label>
+      <input class="input w-full bg-slate-900 text-slate-500 cursor-not-allowed" readonly value="${cfg.key || 'Bulunamadı — id_ed25519.pub dosyası kontrol edin'}">
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm text-slate-400 mb-1">Şifre Politikası</label>
+      <div class="flex gap-3 items-center">
+        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+          <input type="radio" name="pw-policy" value="random" checked class="accent-blue-500"> Rastgele
+        </label>
+        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+          <input type="radio" name="pw-policy" value="custom" class="accent-blue-500"> Sabit
+        </label>
+        <input id="dc-pw-custom" class="input w-40 hidden" placeholder="Şifre girin">
+      </div>
+    </div>
+    <button id="dc-save" class="btn btn-primary">Ayarları Kaydet</button>
+    <span id="dc-status" class="ml-3 text-sm text-green-400 hidden">Kaydedildi</span>
+  `;
+  el.appendChild(configCard);
+
+  // pw policy toggle
+  configCard.querySelectorAll('input[name="pw-policy"]').forEach(r => {
+    r.addEventListener('change', () => {
+      configCard.querySelector('#dc-pw-custom').classList.toggle('hidden', r.value !== 'custom' || !r.checked);
+    });
+  });
+
+  configCard.querySelector('#dc-save').onclick = async () => {
+    await API.updateDeployConfig({
+      host: configCard.querySelector('#dc-host').value.trim(),
+      api: configCard.querySelector('#dc-api').value.trim(),
+      relay: configCard.querySelector('#dc-relay').value.trim(),
+    });
+    const st = configCard.querySelector('#dc-status');
+    st.classList.remove('hidden');
+    setTimeout(() => st.classList.add('hidden'), 2500);
+    cfg.host = configCard.querySelector('#dc-host').value.trim();
+    cfg.api = configCard.querySelector('#dc-api').value.trim();
+    cfg.relay = configCard.querySelector('#dc-relay').value.trim();
+    renderScripts();
+  };
+
+  // ── Config string display ──
+  const cfgStrCard = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6' });
+  function updateConfigStr() {
+    const host = cfg.host || '';
+    const key = cfg.key || '';
+    const api = cfg.api || '';
+    const relay = cfg.relay || '';
+    const str = `${host},key=${key},api=${api},relay=${relay}`;
+    cfgStrCard.innerHTML = `
+      <h2 class="text-lg font-semibold text-white mb-3">Config String (Manuel Kurulum İçin)</h2>
+      <p class="text-xs text-slate-500 mb-2">Bu değeri RustDesk istemcisinde Ayarlar → Ağ → Sunucu Yapılandırmasını İçe Aktar'a yapıştırabilirsiniz.</p>
+      <div class="flex gap-2">
+        <code class="flex-1 bg-slate-900 text-green-400 px-4 py-3 rounded-lg text-xs font-mono break-all select-all">${str}</code>
+        <button class="btn btn-ghost text-xs self-start" id="copy-cfg-str">Kopyala</button>
+      </div>
+    `;
+    cfgStrCard.querySelector('#copy-cfg-str').onclick = () => {
+      navigator.clipboard.writeText(str);
+      toast('Config string kopyalandı');
+    };
+  }
+  updateConfigStr();
+  el.appendChild(cfgStrCard);
+
+  // ── Platform tabs + script preview ──
+  const scriptSection = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl overflow-hidden' });
+  el.appendChild(scriptSection);
+
+  const platforms = [
+    { id: 'windows', label: 'Windows (PowerShell)', icon: 'M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801', ext: '.ps1' },
+    { id: 'linux', label: 'Linux (Bash)', icon: 'M12.504 0c-.155 0-.314.013-.477.043-2.312.428-2.07 3.102-2.07 3.102.496 2.781-.539 3.461-1.613 5.17C7.23 10.03 6 12.97 6 12.97c-.89 2.58.24 4.08 1.56 5.13 1.32 1.05 2.76 1.38 2.76 1.38s-.78.54-1.08 1.56c-.3 1.02.24 2.94.24 2.94L12 24l2.52-.02s.54-1.92.24-2.94c-.3-1.02-1.08-1.56-1.08-1.56s1.44-.33 2.76-1.38c1.32-1.05 2.45-2.55 1.56-5.13 0 0-1.23-2.94-2.34-4.655-1.074-1.709-2.109-2.389-1.613-5.17 0 0 .242-2.674-2.07-3.102A2.1 2.1 0 0012.504 0z', ext: '.sh' },
+    { id: 'macos', label: 'macOS (Bash)', icon: 'M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.81-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z', ext: '.sh' },
+  ];
+
+  let activePlatform = 'windows';
+  let scriptCache = {};
+
+  function renderScripts() {
+    updateConfigStr();
+    scriptCache = {};
+    renderScriptSection();
+  }
+
+  function renderScriptSection() {
+    scriptSection.innerHTML = '';
+
+    // Tab bar
+    const tabs = h('div', { className: 'flex border-b border-slate-700' });
+    for (const p of platforms) {
+      const isActive = p.id === activePlatform;
+      const tab = h('button', {
+        className: `flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors ${isActive ? 'text-blue-400 border-b-2 border-blue-400 bg-slate-700/30' : 'text-slate-400 hover:text-white'}`,
+        onclick: () => { activePlatform = p.id; renderScriptSection(); },
+      });
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'w-4 h-4');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('fill', 'currentColor');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', p.icon);
+      svg.appendChild(path);
+      tab.appendChild(svg);
+      tab.appendChild(document.createTextNode(p.label));
+      tabs.appendChild(tab);
+    }
+    scriptSection.appendChild(tabs);
+
+    // Content area
+    const content = h('div', { className: 'p-6' });
+    scriptSection.appendChild(content);
+
+    if (!cfg.host || !cfg.key) {
+      content.innerHTML = '<div class="text-center py-8 text-slate-500">Önce sunucu adresini ayarlayın ve kaydedin.</div>';
+      return;
+    }
+
+    content.innerHTML = '<div class="text-center py-8 text-slate-500">Script yükleniyor...</div>';
+
+    const pw = getPassword();
+
+    if (scriptCache[activePlatform + pw]) {
+      showScript(content, scriptCache[activePlatform + pw]);
+      return;
+    }
+
+    API.deployScript(activePlatform, pw).then(script => {
+      scriptCache[activePlatform + pw] = script;
+      showScript(content, script);
+    }).catch(err => {
+      content.innerHTML = `<div class="text-center py-8 text-red-400">${err.message}</div>`;
+    });
+  }
+
+  function getPassword() {
+    const policy = configCard.querySelector('input[name="pw-policy"]:checked')?.value || 'random';
+    if (policy === 'custom') {
+      return configCard.querySelector('#dc-pw-custom').value.trim() || 'random';
+    }
+    return 'random';
+  }
+
+  function showScript(container, script) {
+    const p = platforms.find(x => x.id === activePlatform);
+    container.innerHTML = '';
+
+    const toolbar = h('div', { className: 'flex justify-between items-center mb-3' });
+    toolbar.appendChild(h('span', { className: 'text-sm text-slate-400' }, `${p.label} Kurulum Scripti`));
+    const btns = h('div', { className: 'flex gap-2' });
+
+    const copyBtn = h('button', { className: 'btn btn-ghost text-xs', onclick: () => {
+      navigator.clipboard.writeText(script);
+      toast('Script kopyalandı');
+    }}, 'Kopyala');
+
+    const dlBtn = h('button', { className: 'btn btn-primary text-xs', onclick: () => {
+      const blob = new Blob([script], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rustdesk-install-${activePlatform}${p.ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }}, 'İndir ' + p.ext);
+
+    btns.appendChild(copyBtn);
+    btns.appendChild(dlBtn);
+    toolbar.appendChild(btns);
+    container.appendChild(toolbar);
+
+    const pre = h('pre', { className: 'bg-slate-900 text-green-400 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-96 leading-relaxed' });
+    pre.textContent = script;
+    container.appendChild(pre);
+
+    const hint = h('div', { className: 'mt-4 bg-blue-900/30 border border-blue-700/50 rounded-lg p-4 text-sm text-blue-300' });
+    if (activePlatform === 'windows') {
+      hint.textContent = 'Kullanım: PowerShell\'i yönetici olarak açın, scripti yapıştırın veya dosyayı çalıştırın: powershell -ExecutionPolicy Bypass -File rustdesk-install-windows.ps1';
+    } else if (activePlatform === 'linux') {
+      hint.textContent = 'Kullanım: chmod +x rustdesk-install-linux.sh && sudo ./rustdesk-install-linux.sh';
+    } else {
+      hint.textContent = 'Kullanım: chmod +x rustdesk-install-macos.sh && sudo ./rustdesk-install-macos.sh';
+    }
+    container.appendChild(hint);
+  }
+
+  renderScriptSection();
 };
 
 // ── Boot ───────────────────────────────────────────────────────────
