@@ -95,6 +95,9 @@ const API = {
   // Deploy
   deployConfig() { return this.get('/admin/api/deploy/config'); },
   updateDeployConfig(data) { return this.put('/admin/api/deploy/config', data); },
+  startBuild(data) { return this.post('/admin/api/deploy/build', data); },
+  buildStatus() { return this.get('/admin/api/deploy/status'); },
+  buildDownloads() { return this.get('/admin/api/deploy/downloads'); },
   async deployScript(platform, password = 'random') {
     const res = await fetch(`/admin/api/deploy/script/${platform}?password=${encodeURIComponent(password)}`, { credentials: 'include' });
     if (!res.ok) { const d = await res.json(); throw new Error(d.error || `HTTP ${res.status}`); }
