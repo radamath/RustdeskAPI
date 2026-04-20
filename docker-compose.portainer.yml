@@ -14,12 +14,13 @@
 #   docker compose -f docker-compose.portainer.yml up -d
 #
 # GitHub fork Secrets: GENURL ve ZIP_PASSWORD, rdgen ortamı ile aynı olmalı.
+# HBBS relay örnek varsayılan (dış IP:port); kendi adresinizle HBBS_RELAY_ADDR ile ezin.
 
 services:
   hbbs:
     image: rustdesk/rustdesk-server:latest
     container_name: rustdesk-hbbs
-    command: ["hbbs", "-r", "${HBBS_RELAY_ADDR:-127.0.0.1:21117}"]
+    command: ["hbbs", "-r", "${HBBS_RELAY_ADDR:-188.132.215.103:21117}"]
     restart: unless-stopped
     ports:
       - "21115:21115"
@@ -74,6 +75,7 @@ services:
 
   rustdesk-api:
     image: ghcr.io/radamath/rustdeskapi:latest
+    pull_policy: always
     container_name: rustdesk-api
     restart: unless-stopped
     ports:
