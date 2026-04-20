@@ -13,7 +13,14 @@ const API = {
       if (!this._silent) window.location.hash = '#/login';
       throw new Error('Unauthorized');
     }
-    const data = await res.json();
+    const raw = await res.text();
+    let data = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      if (!res.ok) throw new Error(raw.slice(0, 400) || `HTTP ${res.status}`);
+      throw new Error('Geçersiz JSON yanıtı');
+    }
     if (res.status === 202) { data._status = 202; return data; }
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;

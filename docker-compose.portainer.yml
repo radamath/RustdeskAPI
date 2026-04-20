@@ -1,22 +1,12 @@
-version: "3.8"
-
-# =====================================================================
-#  RustDesk Sunucu + Yonetim Paneli  —  Portainer Stack
-# =====================================================================
-#  Portainer'da "Add Stack" > "Repository" ile GitHub repo'nuzu
-#  gösterin veya bu dosyayı "Web editor"e yapıştırın.
-#
-#  Kullanım:
-#    1. Ortam değişkenlerini (SECRET_KEY, ADMIN_PASSWORD) değiştirin.
-#    3. shared-net ağının daha önceden oluşturulmuş olması gerekir:
-#         docker network create shared-net
-# =====================================================================
+# shared-net: docker network create shared-net
+# RDGen / fork Secrets: GENURL ve ZIP_PASSWORD fork ile aynı olmalı.
 
 services:
   hbbs:
     image: rustdesk/rustdesk-server:latest
     container_name: rustdesk-hbbs
-    command: hbbs
+    # İmajda Entrypoint/Cmd null → tam argv gerekir (sadece ["-r", ...] OLMAZ; Created kalır).
+    command: ["hbbs", "-r", "188.132.215.103:21117"]
     restart: unless-stopped
     ports:
       - "21115:21115"
@@ -35,13 +25,37 @@ services:
     restart: unless-stopped
     ports:
       - "21117:21117"
+      - "21119:21119"
     volumes:
       - rustdesk_data:/root
     networks:
       - shared-net
 
+  rdgen:
+    image: bryangerlach/rdgen:latest
+    container_name: rdgen
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: "${RDGEN_SECRET_KEY}"
+      GHUSER: "${GHUSER:-radamath}"
+      GHBEARER: "${GHBEARER}"
+      GENURL: "${GENURL:-https://example.com/}"
+      ZIP_PASSWORD: "${RDGEN_ZIP_PASSWORD}"
+      GHBRANCH: "master"
+      PROTOCOL: "https"
+      REPONAME: "rdgen"
+    ports:
+      - "8080:8000"
+    dns:
+      - 8.8.8.8
+    volumes:
+      - rdgen_exe:/opt/rdgen/exe
+      - rdgen_png:/opt/rdgen/png
+      - rdgen_zips:/opt/rdgen/temp_zips
+    networks:
+      - shared-net
+
   rustdesk-api:
-    # ── Değiştirin: GITHUB_USER → kendi GitHub kullanıcı adınız ──
     image: ghcr.io/radamath/rustdeskapi:latest
     container_name: rustdesk-api
     restart: unless-stopped
@@ -51,18 +65,23 @@ services:
       - rustdesk_data:/rustdesk-data:ro
       - api_data:/app/data
     environment:
-      - SECRET_KEY=buraya-guclu-bir-anahtar-yazin
-      - RUSTDESK_DB=/rustdesk-data/db_v2.sqlite3
-      - ADMIN_USERNAME=admin
-      - ADMIN_PASSWORD=admin123
+      SECRET_KEY: "${API_SECRET_KEY}"
+      RUSTDESK_DB: "/rustdesk-data/db_v2.sqlite3"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
+      RDGEN_INTERNAL_URL: "http://rdgen:8000"
     depends_on:
       - hbbs
+      - rdgen
     networks:
       - shared-net
 
 volumes:
   rustdesk_data:
   api_data:
+  rdgen_exe:
+  rdgen_png:
+  rdgen_zips:
 
 networks:
   shared-net:

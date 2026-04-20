@@ -42,14 +42,46 @@ services:
       - RUSTDESK_DB=/rustdesk-data/db_v2.sqlite3
       - ADMIN_USERNAME=admin
       - ADMIN_PASSWORD=admin123
+      - RDGEN_INTERNAL_URL=http://rdgen:8000
     depends_on:
       - hbbs
+    networks:
+      - shared-net
+
+  rdgen:
+    build:
+      context: ./rdgen-patched
+      dockerfile: Dockerfile
+    image: rdgen-patched:local
+    container_name: rdgen
+    restart: unless-stopped
+    environment:
+      - SECRET_KEY=${RDGEN_SECRET_KEY}
+      - GHUSER=${GHUSER:-radamath}
+      - GHBEARER=${GHBEARER}
+      - GENURL=${GENURL:-http://127.0.0.1:8080/}
+      - ZIP_PASSWORD=${RDGEN_ZIP_PASSWORD}
+      - GHBRANCH=master
+      - PROTOCOL=http
+      - REPONAME=rdgen
+    # SH_SECRET'ı boş vermeyin; portainer örneğindeki açıklamaya bakın.
+    ports:
+      - "8080:8000"
+    dns:
+      - 8.8.8.8
+    volumes:
+      - rdgen_exe:/opt/rdgen/exe
+      - rdgen_png:/opt/rdgen/png
+      - rdgen_zips:/opt/rdgen/temp_zips
     networks:
       - shared-net
 
 volumes:
   rustdesk_data:
   api_data:
+  rdgen_exe:
+  rdgen_png:
+  rdgen_zips:
 
 networks:
   shared-net:

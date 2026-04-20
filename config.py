@@ -19,3 +19,10 @@ class Config:
     JWT_EXPIRATION_HOURS = int(os.environ.get("JWT_EXPIRATION_HOURS", "24"))
     ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+
+    # RDGen Docker servis adresi (örn. http://rdgen:8000). Ayarlıysa build ve durum
+    # bu URL üzerinden gider; indirme linkleri API üzerinden proxy'lenir.
+    RDGEN_INTERNAL_URL = os.environ.get("RDGEN_INTERNAL_URL", "").strip()
+
+    # Ters proxy arkasında doğru indirme URL'leri için (örn. https://panel.example.com)
+    PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")

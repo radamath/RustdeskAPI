@@ -8,9 +8,10 @@ Custom Client – talks to rdgen.crayoneater.org to build branded RustDesk
 import os
 import re
 import textwrap
+from urllib.parse import quote
 
 import requests as http_requests
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
 from models import Setting, db
 from routes.auth import admin_required, log_audit
@@ -20,7 +21,10 @@ bp = Blueprint("deploy", __name__, url_prefix="/admin/api/deploy")
 RDGEN_DEFAULT_URL = "https://rdgen.crayoneater.org"
 
 RE_BUILD_STATUS = re.compile(r"<span[^>]*>(.*?)</span>")
-RE_CHECK_FILE = re.compile(r"window\.location\.replace\('\/check_for_file\?(.*?)'\);")
+RE_CHECK_FILE = re.compile(
+    r"window\.location\.replace\(\s*['\"]/check_for_file\?([^'\"]+)['\"]\s*\)",
+    re.IGNORECASE,
+)
 RE_PAGE_TITLE = re.compile(r"<title>(.*?)</title>", re.IGNORECASE)
 
 
@@ -73,15 +77,35 @@ def _build_config_string(cfg):
     )
 
 
-def _rdgen_base():
+def _rdgen_internal_enabled():
+    return bool(current_app.config.get("RDGEN_INTERNAL_URL", "").strip())
+
+
+def _rdgen_upstream():
+    """Sunucunun RDGen'e bağlandığı adres (Docker içi veya harici)."""
+    internal = (current_app.config.get("RDGEN_INTERNAL_URL") or "").strip().rstrip("/")
+    if internal:
+        return internal
     return _setting("deploy_rdgen_url", RDGEN_DEFAULT_URL).rstrip("/")
+
+
+def _browser_api_base(req):
+    pub = (current_app.config.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    if pub:
+        return pub
+    return (req.url_root or "").rstrip("/")
+
+
+def _rdgen_proxy_download_url(req, filename, uuid):
+    base = _browser_api_base(req)
+    return f"{base}/admin/api/deploy/rdgen-download?filename={quote(filename, safe='')}&uuid={quote(uuid, safe='')}"
 
 
 def _build_rdgen_json(cfg, platform, version):
     """Build the JSON payload that rdgen expects as form-data POST."""
     exename = cfg.get("exename", "").strip() or "RustDesk"
     appname = cfg.get("appname", "").strip() or exename
-    return {
+    payload = {
         "platform": platform,
         "version": version,
         "delayFix": "on",
@@ -102,9 +126,6 @@ def _build_rdgen_json(cfg, platform, version):
         "iconbase64": cfg.get("iconbase64", ""),
         "logobase64": cfg.get("logobase64", ""),
         "privacybase64": "",
-        "iconfile": {},
-        "logofile": {},
-        "privacyfile": {},
         "theme": "system",
         "themeDorO": "default",
         "permissionsDorO": "default",
@@ -132,26 +153,46 @@ def _build_rdgen_json(cfg, platform, version):
         "xOffline": False,
         "removeNewVersionNotif": False,
     }
+    sh_secret = _setting("deploy_sh_secret")
+    if sh_secret:
+        payload["sh_secret_field"] = sh_secret
+    return payload
 
 
-def _download_links(base_url, filename, platform, uuid):
-    common = f"{base_url}/download?"
-    links = []
+def _download_links(req, filename, platform, uuid):
+    """İndirme URL'leri: RDGen dahili kullanımdaysa API proxy; değilse doğrudan RDGen."""
+    use_proxy = _rdgen_internal_enabled()
     if platform == "windows":
-        links.append({"label": "Windows EXE (64-bit)", "url": f"{common}filename={filename}.exe&uuid={uuid}"})
-        links.append({"label": "Windows MSI (64-bit)", "url": f"{common}filename={filename}.msi&uuid={uuid}"})
+        pairs = [
+            ("Windows EXE (64-bit)", f"{filename}.exe"),
+            ("Windows MSI (64-bit)", f"{filename}.msi"),
+        ]
     elif platform == "windows-x86":
-        links.append({"label": "Windows EXE (32-bit)", "url": f"{common}filename={filename}.exe&uuid={uuid}"})
+        pairs = [("Windows EXE (32-bit)", f"{filename}.exe")]
     elif platform == "linux":
+        pairs = []
         for arch in ("x86_64", "aarch64"):
-            links.append({"label": f"Linux DEB ({arch})", "url": f"{common}filename={filename}-{arch}.deb&uuid={uuid}"})
-            links.append({"label": f"Linux RPM ({arch})", "url": f"{common}filename={filename}-{arch}.rpm&uuid={uuid}"})
-        links.append({"label": "Linux AppImage (x86_64)", "url": f"{common}filename={filename}-x86_64.AppImage&uuid={uuid}"})
+            pairs.append((f"Linux DEB ({arch})", f"{filename}-{arch}.deb"))
+            pairs.append((f"Linux RPM ({arch})", f"{filename}-{arch}.rpm"))
+        pairs.append(("Linux AppImage (x86_64)", f"{filename}-x86_64.AppImage"))
     elif platform == "android":
-        links.append({"label": "Android APK (arm64)", "url": f"{common}filename={filename}-aarch64.apk&uuid={uuid}"})
+        pairs = [("Android APK (arm64)", f"{filename}-aarch64.apk")]
     elif platform == "macos":
-        links.append({"label": "macOS DMG (Apple Silicon)", "url": f"{common}filename={filename}-aarch64.dmg&uuid={uuid}"})
-        links.append({"label": "macOS DMG (Intel)", "url": f"{common}filename={filename}-x86_64.dmg&uuid={uuid}"})
+        pairs = [
+            ("macOS DMG (Apple Silicon)", f"{filename}-aarch64.dmg"),
+            ("macOS DMG (Intel)", f"{filename}-x86_64.dmg"),
+        ]
+    else:
+        pairs = []
+
+    links = []
+    upstream = _rdgen_upstream()
+    for label, fn in pairs:
+        if use_proxy:
+            url = _rdgen_proxy_download_url(req, fn, uuid)
+        else:
+            url = f"{upstream}/download?filename={quote(fn, safe='')}&uuid={quote(uuid, safe='')}"
+        links.append({"label": label, "url": url})
     return links
 
 
@@ -161,7 +202,13 @@ def _download_links(base_url, filename, platform, uuid):
 @admin_required
 def get_config():
     cfg = _get_deploy_config()
-    cfg["rdgen_url"] = _rdgen_base()
+    internal = _rdgen_internal_enabled()
+    cfg["rdgen_internal"] = internal
+    if internal:
+        cfg["rdgen_url"] = ""
+    else:
+        cfg["rdgen_url"] = _setting("deploy_rdgen_url", RDGEN_DEFAULT_URL).rstrip("/")
+    cfg["sh_secret"] = _setting("deploy_sh_secret")
     cfg["build_uuid"] = _setting("deploy_build_uuid")
     cfg["build_filename"] = _setting("deploy_build_filename")
     cfg["build_platform"] = _setting("deploy_build_platform")
@@ -182,9 +229,12 @@ def update_config():
         "iconbase64": "deploy_icon",
         "logobase64": "deploy_logo",
         "rdgen_url": "deploy_rdgen_url",
+        "sh_secret": "deploy_sh_secret",
     }
     for short, db_key in field_map.items():
         if short in data:
+            if short == "rdgen_url" and _rdgen_internal_enabled():
+                continue
             _set_setting(db_key, data[short])
     db.session.commit()
     log_audit("deploy_config", "Dağıtım ayarları güncellendi")
@@ -205,7 +255,7 @@ def start_build():
         return jsonify({"error": "Sunucu adresi ve public key ayarlanmalı"}), 400
 
     payload = _build_rdgen_json(cfg, platform, version)
-    base_url = _rdgen_base()
+    base_url = _rdgen_upstream()
 
     try:
         resp = http_requests.post(
@@ -217,14 +267,33 @@ def start_build():
         return jsonify({"error": f"RDGen sunucusuna bağlanılamadı: {e}"}), 502
 
     if resp.status_code < 200 or resp.status_code >= 300:
-        return jsonify({"error": f"RDGen hatası: HTTP {resp.status_code}"}), 502
+        detail = ""
+        try:
+            j = resp.json()
+            detail = j.get("error") or j.get("message") or str(j)
+        except Exception:
+            detail = (resp.text or "")[:800]
+        return jsonify(
+            {"error": f"RDGen hatası (HTTP {resp.status_code}): {detail or 'yanıt gövdesi yok'}"}
+        ), 502
 
     html = resp.text
     status_match = RE_BUILD_STATUS.search(html)
     file_match = RE_CHECK_FILE.search(html)
 
     if not file_match:
-        return jsonify({"error": "RDGen yanıtı ayrıştırılamadı. Sunucu ayarlarını kontrol edin."}), 502
+        if "application/json" in (resp.headers.get("Content-Type") or "").lower():
+            try:
+                j = resp.json()
+                return jsonify({"error": f"RDGen: {j.get('error', j)}"}), 502
+            except Exception:
+                pass
+        return jsonify(
+            {
+                "error": "RDGen yanıtı ayrıştırılamadı (check_for_file yok). "
+                "RDGen imajını rdgen-patched ile yeniden build edin veya RDGen loglarına bakın.",
+            }
+        ), 502
 
     query_str = file_match.group(1)
     params = dict(p.split("=", 1) for p in query_str.split("&") if "=" in p)
@@ -239,7 +308,7 @@ def start_build():
 
     stage = status_match.group(1) if status_match else "Başlatılıyor..."
 
-    links = _download_links(base_url, filename, build_platform, uuid)
+    links = _download_links(request, filename, build_platform, uuid)
 
     log_audit("deploy_build", f"Özel client build başlatıldı: {platform} v{version}")
     return jsonify({
@@ -262,7 +331,7 @@ def build_status():
     if not uuid or not filename:
         return jsonify({"status": "idle", "stage": "Aktif build yok"})
 
-    base_url = _rdgen_base()
+    base_url = _rdgen_upstream()
     check_url = f"{base_url}/check_for_file?filename={filename}&uuid={uuid}&platform={platform}"
 
     try:
@@ -277,7 +346,7 @@ def build_status():
     status_match = RE_BUILD_STATUS.search(html)
     stage = status_match.group(1) if status_match else ""
 
-    links = _download_links(base_url, filename, platform, uuid)
+    links = _download_links(request, filename, platform, uuid)
 
     if "generated" in title:
         if "Error: No file generated" in html:
@@ -300,8 +369,44 @@ def get_downloads():
     if not uuid or not filename:
         return jsonify({"downloads": []})
 
-    links = _download_links(_rdgen_base(), filename, platform, uuid)
+    links = _download_links(request, filename, platform, uuid)
     return jsonify({"downloads": links, "uuid": uuid, "filename": filename, "platform": platform})
+
+
+@bp.route("/rdgen-download", methods=["GET"])
+@admin_required
+def rdgen_download_proxy():
+    """RDGen /download uç noktasını admin oturumu arkasında proxy'ler (tarayıcı RDGen'e gitmez)."""
+    qs = request.query_string.decode("utf-8")
+    if not qs:
+        return jsonify({"error": "Geçersiz istek"}), 400
+    upstream = _rdgen_upstream()
+    url = f"{upstream}/download?{qs}"
+    try:
+        upstream_resp = http_requests.get(url, stream=True, timeout=600)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+    if upstream_resp.status_code < 200 or upstream_resp.status_code >= 300:
+        return jsonify({"error": f"RDGen: HTTP {upstream_resp.status_code}"}), upstream_resp.status_code
+
+    excluded = {"content-encoding", "transfer-encoding", "connection"}
+    pass_headers = [
+        (k, v)
+        for k, v in upstream_resp.headers.items()
+        if k.lower() not in excluded
+    ]
+
+    def generate():
+        for chunk in upstream_resp.iter_content(chunk_size=65536):
+            if chunk:
+                yield chunk
+
+    return Response(
+        stream_with_context(generate()),
+        status=upstream_resp.status_code,
+        headers=dict(pass_headers),
+    )
 
 
 # ── Quick Deploy Script Endpoints (preserved) ────────────────────────
