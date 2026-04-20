@@ -154,13 +154,15 @@ def dashboard():
     from models import ConnectionLog, Heartbeat, RustdeskUser
 
     now = datetime.now(timezone.utc)
+    # SQLite kolonları naive UTC; aware datetime ile filtre bazen hata/yanlış sonuç verir
+    now_naive_utc = now.replace(tzinfo=None)
     total_peers = rustdesk_db.get_peer_count()
-    online_threshold = now - timedelta(minutes=5)
+    online_threshold = now_naive_utc - timedelta(minutes=5)
     online_peers = Heartbeat.query.filter(Heartbeat.last_seen >= online_threshold).count()
     total_users = RustdeskUser.query.count()
     total_connections = ConnectionLog.query.count()
 
-    week_ago = now - timedelta(days=7)
+    week_ago = now_naive_utc - timedelta(days=7)
     recent_logs = (
         ConnectionLog.query
         .filter(ConnectionLog.timestamp >= week_ago)
@@ -171,7 +173,7 @@ def dashboard():
 
     daily_counts = {}
     for i in range(7):
-        day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        day = (now_naive_utc - timedelta(days=i)).strftime("%Y-%m-%d")
         daily_counts[day] = 0
     day_logs = (
         ConnectionLog.query

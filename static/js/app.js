@@ -1100,6 +1100,15 @@ Pages.deploy = async (el) => {
         <p class="text-sm text-slate-300"><strong>RDGen entegre mod:</strong> Build istekleri bu API konteynerinden Docker ağındaki RDGen servisine gider. İndirme bağlantıları doğrudan bu yönetim paneli üzerinden (admin oturumu ile) verilir; ayrı bir RDGen web adresi açmanız gerekmez.</p>
         <p class="text-xs text-amber-200/90 mt-2 bg-amber-900/20 border border-amber-800/40 rounded px-2 py-1.5"><strong>Not:</strong> <code class="bg-slate-800 px-1 rounded">http://IP:8080</code> ile RDGen sayfasını tarayıcıda açarsanız konsolda &quot;Cross-Origin-Opener-Policy / untrustworthy origin&quot; uyarısı görülebilir; bu HTTP+düz IP kullanımından kaynaklanır. Özel client oluşturmayı <strong>buradan</strong> (Build Başlat) yapın; doğrudan 8080 kullanmayın. Zorunluysa RDGen için HTTPS + alan adı (Nginx/Caddy) kullanın.</p>
         <p class="text-xs text-slate-500 mt-2">GitHub Actions&apos;ın derlenmiş dosyayı geri yükleyebilmesi için fork repo <code class="bg-slate-800 px-1 rounded">GENURL</code> değeri hâlâ internetten erişilebilir bir adres olmalı (tercihen HTTPS + alan adı veya Nginx ters proxy).</p>
+        <p class="text-xs text-red-200/95 mt-2 bg-red-950/35 border border-red-800/45 rounded px-2 py-2 leading-relaxed">
+          <strong>Actions &quot;Download with Retry&quot; / get_zip timeout:</strong> Workflow, zip’i
+          <strong>GENURL</strong> ile tanımlanan adresten indirir. Logda <code class="bg-slate-900 px-1 rounded">https://rdgen:8000</code>
+          görüyorsanız bu <strong>yanlış</strong>: <code>rdgen</code> sadece Docker içi DNS’tir; GitHub runner (bulut veya başka bir PC)
+          bu ismi <strong>çözümleyemez</strong> → 60 sn timeout. Çözüm: RDGen’i dış dünyaya
+          <strong>https://sunucu-ip:8080/</strong> veya <strong>https://rdgen.sizin-domain.com/</strong> (Nginx/Caddy ters proxy) ile açın;
+          <strong>rdgen</strong> konteynerindeki <code class="bg-slate-900 px-1 rounded">GENURL</code> ile GitHub fork’ta
+          <strong>Settings → Secrets → GENURL</strong> aynı <strong>genel URL</strong> olmalı. Asla sadece <code>http://rdgen:8000</code>.
+        </p>
         <p class="text-xs text-slate-500 mt-1">Ters proxy kullanıyorsanız sunucuda <code class="bg-slate-800 px-1 rounded">PUBLIC_BASE_URL</code> ortam değişkenini (örn. <code class="bg-slate-800 px-1 rounded">https://panel.example.com</code>) tanımlayın; böylece indirme linkleri doğru kök adresi kullanır.</p>
       </div>
       ` : `

@@ -44,7 +44,7 @@ def create_app():
     @app.route("/admin")
     @app.route("/admin/<path:path>")
     def serve_spa(**kwargs):
-        ver = getattr(Config, "STATIC_ASSET_VERSION", "12")
+        ver = getattr(Config, "STATIC_ASSET_VERSION", "15")
         resp = make_response(render_template("index.html", asset_version=ver))
         resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         resp.headers["Pragma"] = "no-cache"

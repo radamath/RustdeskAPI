@@ -32,7 +32,7 @@ services:
     networks:
       - shared-net
 
-  # rdgen-patched: volume izinleri (temp_zips Permission denied) + apply_patch
+  # rdgen-patched: temp_zips izinleri + views yaması (zip_url için GENURL; rdgen:8000 Actions timeout)
   rdgen:
     build:
       context: ./rdgen-patched
@@ -76,12 +76,14 @@ services:
       ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
       RDGEN_INTERNAL_URL: "http://rdgen:8000"
-      # HTTPS panel + ters proxy kullanıyorsanız: TRUST_PROXY=1, PUBLIC_BASE_URL=https://...
+      # HTTPS panel + ters proxy: TRUST_PROXY=1, PUBLIC_BASE_URL=https://paneliniz/ (RDGen dahili modda GitHub zip URL’si için)
       TRUST_PROXY: "${TRUST_PROXY:-0}"
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      # zip_url Host düzeltmesi: PUBLIC_BASE_URL yoksa rdgen ile aynı GENURL kullanılabilir
+      GENURL: "${GENURL:-}"
       SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-1}"
       # Tarayıcı önbelleği: kod güncellemesinden sonra artırın (örn. 14, 15)
-      STATIC_ASSET_VERSION: "${STATIC_ASSET_VERSION:-14}"
+      STATIC_ASSET_VERSION: "${STATIC_ASSET_VERSION:-15}"
     depends_on:
       - hbbs
       - rdgen

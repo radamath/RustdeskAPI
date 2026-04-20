@@ -27,6 +27,10 @@ class Config:
 
     # Ters proxy arkasında doğru indirme URL'leri için (örn. https://panel.example.com)
     PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    # RDGEN_INTERNAL_URL kullanılırken zip_url için Host başlığı; boşsa GENURL (rdgen ile aynı) kullanılabilir
+    RDGEN_PUBLIC_URL = (
+        os.environ.get("RDGEN_PUBLIC_URL") or os.environ.get("GENURL") or ""
+    ).strip().rstrip("/")
 
     # RustDesk /audit/conn gövdesindeki id ↔ peer alanları Kaynak/Hedef ile ters; True iken kayıtta yer değiştirir.
     CONN_AUDIT_PEER_SWAP = os.environ.get("CONN_AUDIT_PEER_SWAP", "1").strip().lower() in (
@@ -47,4 +51,4 @@ class Config:
     )
 
     # Panel JS/CSS önbellek kırma; her dağıtımda artırın veya ortamda STATIC_ASSET_VERSION=15 verin
-    STATIC_ASSET_VERSION = (os.environ.get("STATIC_ASSET_VERSION") or "14").strip() or "14"
+    STATIC_ASSET_VERSION = (os.environ.get("STATIC_ASSET_VERSION") or "15").strip() or "15"

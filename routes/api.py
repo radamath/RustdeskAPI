@@ -22,6 +22,15 @@ from routes.auth import (
 bp = Blueprint("api", __name__, url_prefix="/api")
 
 
+def _utc_aware(dt):
+    """SQLite naive datetime ile datetime.now(timezone.utc) arasında çıkarma yapılabilmesi için."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _backfill_audit_endpoints(fp: str, tp: str, conn_id: str, session_id: str) -> tuple[str, str]:
     """RustDesk bazen close/new satırında karşı peer göndermez; aynı oturumdan tamamla."""
     fp = (fp or "").strip()
@@ -177,8 +186,12 @@ def heartbeat():
         is_new = hb is None
         if hb:
             hb.ip = client_ip
-            if (now - hb.last_seen).total_seconds() > 30:
+            ls = hb.last_seen
+            if ls is None:
                 hb.last_seen = now
+            else:
+                if (now - _utc_aware(ls)).total_seconds() > 30:
+                    hb.last_seen = now
             if data.get("local_addr"):
                 hb.local_ip = _extract_ip(data["local_addr"])
             if data.get("hostname"):

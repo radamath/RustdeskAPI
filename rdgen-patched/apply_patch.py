@@ -1,13 +1,32 @@
 #!/usr/bin/env python3
 """
-1) GitHub 204 + boş gövde → response.json() patlamasın.
-2) GithubRun(id=...) — modelde id IntegerField PK ve AutoField değil; verilmezse save() 500 döner.
+1) full_url: zip_url ve PNG linkleri request Host yerine GENURL kullanır (Docker içi rdgen:8000 → Actions timeout olmaz).
+2) GitHub 204 + boş gövde → response.json() patlamasın.
+3) GithubRun(id=...) — modelde id IntegerField PK ve AutoField değil; verilmezse save() 500 döner.
 """
 import re
 from pathlib import Path
 
 VIEWS = Path("/opt/rdgen/rdgenerator/views.py")
 text = VIEWS.read_text(encoding="utf-8")
+
+# --- full_url: GitHub runner Host header değil GENURL ile indirir ---
+OLD_FULL = """            protocol = _settings.PROTOCOL
+            host = request.get_host()
+            full_url = f"{protocol}://{host}"
+"""
+NEW_FULL = """            _rdgen_pub = str(_settings.GENURL or "").strip().rstrip("/")
+            if _rdgen_pub:
+                full_url = _rdgen_pub
+            else:
+                protocol = _settings.PROTOCOL
+                host = request.get_host()
+                full_url = f"{protocol}://{host}"
+"""
+if OLD_FULL in text:
+    text = text.replace(OLD_FULL, NEW_FULL, 1)
+elif "_rdgen_pub" not in text:
+    raise SystemExit("apply_patch: full_url bloğu bulunamadı (imaj sürümü değişmiş olabilir)")
 
 # --- Import Max ---
 if "from django.db.models import Q, Max" not in text:
@@ -76,4 +95,4 @@ if n_run < 1:
     raise SystemExit("apply_patch: new_github_run = GithubRun(...) bloğu bulunamadı")
 
 VIEWS.write_text(text, encoding="utf-8")
-print(f"apply_patch: tamam (204-json:1, GithubRun.id:{n_run})")
+print(f"apply_patch: tamam (full_url+GENURL, 204-json:1, GithubRun.id:{n_run})")

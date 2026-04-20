@@ -6,10 +6,13 @@ Custom Client – talks to rdgen.crayoneater.org to build branded RustDesk
 """
 
 import base64
+import http.client
 import os
 import re
 import textwrap
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
+
+from requests.structures import CaseInsensitiveDict
 
 import requests as http_requests
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
@@ -175,6 +178,93 @@ def _browser_api_base(req):
     if pub:
         return pub
     return (req.url_root or "").rstrip("/")
+
+
+def _rdgen_public_host_netloc(req):
+    """
+    RDGen upstream Django, zip_url için request.get_host() kullanır; panel isteği
+    http://rdgen:8000 ile gelince Host=rdgen:8000 olur → Actions'ta https://rdgen:8000 kalır.
+    Public kök URL'den netloc (host:port) üretip POST'ta Host başlığı olarak gönderiyoruz.
+    requests/urllib3 Host'u bazen ezdiği için yalnızca /generator POST'u http.client ile yapılır.
+    """
+    if not _rdgen_internal_enabled():
+        return None
+    pub = (current_app.config.get("PUBLIC_BASE_URL") or "").strip()
+    if not pub:
+        pub = (current_app.config.get("RDGEN_PUBLIC_URL") or "").strip()
+    if not pub and req is not None:
+        pub = (req.url_root or "").strip()
+    pub = pub.rstrip("/")
+    if not pub:
+        return None
+    p = urlparse(pub)
+    return p.netloc or None
+
+
+def _rdgen_post_generator_http(url: str, req, payload: dict, timeout):
+    """
+    RDGen POST /generator — Host başlığını public netloc yapar (urllib3 ezemez).
+    """
+    netloc = _rdgen_public_host_netloc(req)
+    if not netloc:
+        raise RuntimeError("rdgen public netloc boş")
+
+    session = http_requests.Session()
+    rq = http_requests.Request(
+        "POST",
+        url,
+        data=payload,
+        headers={"User-Agent": "RustdeskAPI-deploy/1.0"},
+    )
+    prep = session.prepare_request(rq)
+    body = prep.body
+    if isinstance(body, str):
+        body = body.encode("utf-8")
+    elif body is None:
+        body = b""
+
+    hdrs = CaseInsensitiveDict(prep.headers)
+    hdrs.pop("Host", None)
+    hdrs["Host"] = netloc
+
+    p = urlparse(url)
+    scheme = (p.scheme or "http").lower()
+    host = p.hostname
+    if not host:
+        raise RuntimeError("rdgen URL host yok")
+    port = p.port
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    path = p.path or "/"
+    if p.query:
+        path = path + "?" + p.query
+
+    to = timeout[1] if isinstance(timeout, tuple) else timeout
+    if scheme == "https":
+        conn = http.client.HTTPSConnection(host, port, timeout=to)
+    else:
+        conn = http.client.HTTPConnection(host, port, timeout=to)
+    try:
+        conn.request("POST", path, body, dict(hdrs))
+        res = conn.getresponse()
+        raw = res.read()
+        st = res.status
+        hlist = res.getheaders()
+    finally:
+        conn.close()
+
+    out = http_requests.Response()
+    out.status_code = st
+    out._content = raw
+    out.headers = CaseInsensitiveDict(hlist)
+    out.url = url
+    out.encoding = http_requests.utils.get_encoding_from_headers(out.headers) or "utf-8"
+    return out
+
+
+def _rdgen_http_request(method, url, _req, **kwargs):
+    """RDGen'e GET vb. (generator POST ayrı: _rdgen_post_generator_http)."""
+    return http_requests.request(method, url, **kwargs)
 
 
 def _rdgen_proxy_download_url(req, filename, uuid):
@@ -349,14 +439,36 @@ def start_build():
     payload = _build_rdgen_json(cfg, platform, version)
     base_url = _rdgen_upstream()
 
+    netloc = _rdgen_public_host_netloc(request)
+    if _rdgen_internal_enabled() and not netloc:
+        try:
+            current_app.logger.warning(
+                "deploy: RDGEN_INTERNAL_URL kullanılıyor ama public kök URL yok; zip_url rdgen:8000 kalır. "
+                "rustdesk-api ortamında PUBLIC_BASE_URL veya GENURL (rdgen ile aynı) tanımlayın."
+            )
+        except Exception:
+            pass
+
     try:
-        resp = http_requests.post(
-            f"{base_url}/generator",
-            data=payload,
-            timeout=(20, 180),
-            headers={"User-Agent": "RustdeskAPI-deploy/1.0"},
-        )
-    except http_requests.exceptions.ConnectionError as e:
+        if _rdgen_internal_enabled() and netloc:
+            resp = _rdgen_post_generator_http(
+                f"{base_url}/generator",
+                request,
+                payload,
+                (20, 180),
+            )
+        else:
+            resp = http_requests.post(
+                f"{base_url}/generator",
+                data=payload,
+                timeout=(20, 180),
+                headers={"User-Agent": "RustdeskAPI-deploy/1.0"},
+            )
+    except (
+        http_requests.exceptions.ConnectionError,
+        OSError,
+        http.client.HTTPException,
+    ) as e:
         return jsonify({
             "error": (
                 f"RDGen'e TCP ile bağlanılamadı ({base_url}). "
@@ -457,7 +569,7 @@ def build_status():
     check_url = f"{base_url}/check_for_file?filename={filename}&uuid={uuid}&platform={platform}"
 
     try:
-        resp = http_requests.get(check_url, timeout=30)
+        resp = _rdgen_http_request("GET", check_url, request, timeout=30)
     except Exception as e:
         return jsonify({"status": "error", "stage": f"RDGen bağlantı hatası: {e}"}), 502
 
@@ -505,7 +617,9 @@ def rdgen_download_proxy():
     upstream = _rdgen_upstream()
     url = f"{upstream}/download?{qs}"
     try:
-        upstream_resp = http_requests.get(url, stream=True, timeout=600)
+        upstream_resp = _rdgen_http_request(
+            "GET", url, request, stream=True, timeout=600
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
