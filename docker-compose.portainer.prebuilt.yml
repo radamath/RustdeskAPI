@@ -1,22 +1,12 @@
-# ── Portainer / docker compose stack ─────────────────────────────────
-# Önce ağ:  docker network create shared-net
+# Portainer Web Editor ile uyumlu: rdgen için BUILD YOK (500 hatasının ana nedeni buydu).
 #
-# Gizli değerleri bu dosyaya YAZMAYIN. Portainer → Stack → Environment
-# veya .env ile: API_SECRET_KEY, RDGEN_SECRET_KEY, GHBEARER, ADMIN_PASSWORD,
-# RDGEN_ZIP_PASSWORD, HBBS_RELAY_ADDR, PUBLIC_BASE_URL, GENURL, …
+# Önce SSH ile sunucuda (RustdeskAPI repo kökünde, rdgen-patched klasörü varken):
+#   docker build -t rdgen-patched:local -f rdgen-patched/Dockerfile rdgen-patched
 #
-# rdgen BUILD: ./rdgen-patched klasörü compose dosyası ile AYNI dizinde olmalı
-# (RustdeskAPI reposu kökü). Portainer Web Editor’de sadece YAML yapıştırırsanız
-# build genelde PATLAR (500) — ./rdgen-patched yok. Çözümler:
-#   A) Stack’i Git repo URL ile tanımlayın, VEYA
-#   B) docker-compose.portainer.prebuilt.yml kullanın (build yok; imajı önce SSH ile build edin).
+# Sonra bu dosyayı Portainer'da stack olarak yapıştır.
+# Ortam değişkenlerini Portainer → Stack → Environment ile verin (aşağıdaki ${...}).
 #
-# İlk / Dockerfile değişince:
-#   docker compose -f docker-compose.portainer.yml build --no-cache rdgen
-#   docker compose -f docker-compose.portainer.yml up -d
-#
-# GitHub fork Secrets: GENURL ve ZIP_PASSWORD, rdgen ortamı ile aynı olmalı.
-# HBBS relay örnek varsayılan (dış IP:port); kendi adresinizle HBBS_RELAY_ADDR ile ezin.
+# shared-net: docker network create shared-net
 
 services:
   hbbs:
@@ -48,9 +38,6 @@ services:
       - shared-net
 
   rdgen:
-    build:
-      context: ./rdgen-patched
-      dockerfile: Dockerfile
     image: rdgen-patched:local
     container_name: rdgen
     restart: unless-stopped
@@ -58,7 +45,7 @@ services:
       SECRET_KEY: "${RDGEN_SECRET_KEY}"
       GHUSER: "${GHUSER}"
       GHBEARER: "${GHBEARER}"
-      GENURL: "${GENURL:-https://example.com/}"
+      GENURL: "${GENURL:-https://rustclient.alpaycatal.com/}"
       ZIP_PASSWORD: "${RDGEN_ZIP_PASSWORD}"
       GHBRANCH: "${GHBRANCH:-master}"
       PROTOCOL: "https"
@@ -82,7 +69,6 @@ services:
     ports:
       - "21114:21114"
     volumes:
-      # rdgen_zips/temp_zips'i BURAYA bağlamayın (çift mount → rdgen PermissionError).
       - rustdesk_data:/rustdesk-data:ro
       - api_data:/app/data
     environment:
@@ -92,8 +78,8 @@ services:
       ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
       RDGEN_INTERNAL_URL: "http://rdgen:8000"
       TRUST_PROXY: "${TRUST_PROXY:-1}"
-      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
-      GENURL: "${GENURL:-}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-https://rustclient.alpaycatal.com}"
+      GENURL: "${GENURL:-https://rustclient.alpaycatal.com/}"
       SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-1}"
       SESSION_COOKIE_SAMESITE: "${SESSION_COOKIE_SAMESITE:-Lax}"
       STATIC_ASSET_VERSION: "${STATIC_ASSET_VERSION:-15}"
