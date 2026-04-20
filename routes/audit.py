@@ -6,7 +6,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import String, case, cast, func, or_
 
 import rustdesk_db
-from models import AuditLog, ConnectionLog, FileAudit, PeerTag, db
+from models import AuditLog, ConnectionLog, FileAudit, Heartbeat, PeerTag, db
 from routes.auth import admin_required
 
 bp = Blueprint("audit", __name__, url_prefix="/admin/api")
@@ -31,7 +31,7 @@ def _is_connect(action: str) -> bool:
     a = _action_norm(action)
     if a in ("disconnect",):
         return False
-    return a in ("connect", "connection", "reconnect")
+    return a in ("connect", "connection", "reconnect", "new")
 
 
 def _is_close(action: str) -> bool:
@@ -82,13 +82,13 @@ def _merge_session_rows(logs):
 
 
 def _peer_display_names(peer_ids: set):
-    """RustDesk peer info hostname + PeerTag alias."""
-    tags = (
-        PeerTag.query.filter(PeerTag.peer_id.in_(peer_ids)).all()
-        if peer_ids
-        else []
-    )
+    """RustDesk db_v2 hostname, yoksa Heartbeat hostname, yoksa PeerTag alias."""
+    if not peer_ids:
+        return {}
+    tags = PeerTag.query.filter(PeerTag.peer_id.in_(peer_ids)).all()
     tag_map = {t.peer_id: (t.alias or "").strip() for t in tags}
+    heartbeats = Heartbeat.query.filter(Heartbeat.id.in_(peer_ids)).all()
+    hb_map = {h.id: (h.hostname or "").strip() for h in heartbeats if (h.hostname or "").strip()}
     out = {}
     for pid in peer_ids:
         name = ""
@@ -96,6 +96,8 @@ def _peer_display_names(peer_ids: set):
         if p:
             info = p.get("info") or {}
             name = (info.get("hostname") or "").strip()
+        if not name:
+            name = hb_map.get(pid) or ""
         if not name:
             name = tag_map.get(pid) or ""
         out[pid] = name
