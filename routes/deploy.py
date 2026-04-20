@@ -54,9 +54,10 @@ def _rdgen_upstream_error_message(resp, base_url: str) -> str:
         return (
             f"RDGen içinde sunucu hatası (HTTP {status}). "
             "Sunucuda: docker logs rdgen --tail 200. "
-            "Logda Permission denied ve temp_zips/*.zip görüyorsanız: rdgen imajını "
-            "repodaki rdgen-patched (entrypoint ile) yeniden build edin; Docker volume "
-            "sahiplik sorunudur. "
+            "Logda Permission denied ve temp_zips/*.zip görüyorsanız: (1) Portainer’da "
+            "rustdesk-api konteynerinden rdgen_zips/temp_zips mount’unu KALDIRIN — bu volume "
+            "yalnızca rdgen’de olmalı. (2) rdgen-patched imajını entrypoint ile yeniden build edin. "
+            "(3) Gerekirse hostta: chown -R 1000:1000 /var/lib/docker/volumes/<stack>_rdgen_zips/_data "
             "failed to get logo/icon sonrası 500 ise önce temp_zips iznini düzeltin. "
             "Ayrıca: GHBEARER, GENURL, GitHub limiti."
         )

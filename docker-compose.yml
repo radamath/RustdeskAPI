@@ -36,6 +36,7 @@ services:
     ports:
       - "21114:21114"
     volumes:
+      # rdgen_exe/png/zips volume'larını rustdesk-api'ye bağlamayın (PermissionError).
       - rustdesk_data:/rustdesk-data:ro
       - api_data:/app/data
     environment:

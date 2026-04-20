@@ -66,6 +66,8 @@ services:
     ports:
       - "21114:21114"
     volumes:
+      # ÖNEMLİ: rdgen_zips / temp_zips'i BURAYA bağlamayın. Sadece rdgen kullanmalı.
+      # İki konteyner aynı volume'u paylaşırsa biri root ile dosya oluşturur, rdgen (user) yazamaz.
       - rustdesk_data:/rustdesk-data:ro
       - api_data:/app/data
     environment:
