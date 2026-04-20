@@ -261,10 +261,32 @@ def start_build():
         resp = http_requests.post(
             f"{base_url}/generator",
             data=payload,
-            timeout=60,
+            timeout=(20, 180),
+            headers={"User-Agent": "RustdeskAPI-deploy/1.0"},
         )
+    except http_requests.exceptions.ConnectionError as e:
+        return jsonify({
+            "error": (
+                f"RDGen'e TCP ile bağlanılamadı ({base_url}). "
+                "rustdesk-api ile rdgen aynı Docker ağında mı, RDGEN_INTERNAL_URL doğru mu "
+                "(örn. http://rdgen:8000), rdgen konteyneri ayakta mı kontrol edin."
+            ),
+            "detail": str(e),
+        }), 502
+    except http_requests.exceptions.Timeout:
+        return jsonify({
+            "error": "RDGen yanıt vermedi (zaman aşımı 180s). Sunucu yükü veya GitHub runner kuyruğu olabilir.",
+        }), 502
     except Exception as e:
         return jsonify({"error": f"RDGen sunucusuna bağlanılamadı: {e}"}), 502
+
+    if resp.status_code == 401:
+        return jsonify({
+            "error": (
+                "RDGen 401: GitHub token (GHBEARER) geçersiz veya süresi dolmuş olabilir; "
+                "GENURL panel adresinizle uyumlu olmalı. rdgen konteyner ortam değişkenlerini kontrol edin."
+            ),
+        }), 502
 
     if resp.status_code < 200 or resp.status_code >= 300:
         detail = ""
@@ -274,7 +296,10 @@ def start_build():
         except Exception:
             detail = (resp.text or "")[:800]
         return jsonify(
-            {"error": f"RDGen hatası (HTTP {resp.status_code}): {detail or 'yanıt gövdesi yok'}"}
+            {
+                "error": f"RDGen hatası (HTTP {resp.status_code}): {detail or 'yanıt gövdesi yok'}",
+                "upstream": base_url,
+            }
         ), 502
 
     html = resp.text

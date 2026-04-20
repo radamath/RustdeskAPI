@@ -11,6 +11,11 @@ def create_app():
     app = Flask(__name__, static_folder="static", static_url_path="/static")
     app.config.from_object(Config)
 
+    if getattr(Config, "TRUST_PROXY", False):
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
     CORS(app, supports_credentials=True)
     db.init_app(app)
 

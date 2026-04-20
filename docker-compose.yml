@@ -1,10 +1,11 @@
+# Yerel geliştirme / örnek — gizli değerleri .env dosyasına koyun.
 version: "3.8"
 
 services:
   hbbs:
     image: rustdesk/rustdesk-server:latest
     container_name: rustdesk-hbbs
-    command: hbbs
+    command: ["hbbs", "-r", "${HBBS_RELAY_ADDR:-127.0.0.1:21117}"]
     restart: unless-stopped
     ports:
       - "21115:21115"
@@ -38,13 +39,16 @@ services:
       - rustdesk_data:/rustdesk-data:ro
       - api_data:/app/data
     environment:
-      - SECRET_KEY=change-me-in-production
+      - SECRET_KEY=${API_SECRET_KEY:-change-me-in-production}
       - RUSTDESK_DB=/rustdesk-data/db_v2.sqlite3
-      - ADMIN_USERNAME=admin
-      - ADMIN_PASSWORD=admin123
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - RDGEN_INTERNAL_URL=http://rdgen:8000
+      - TRUST_PROXY=${TRUST_PROXY:-0}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
     depends_on:
       - hbbs
+      - rdgen
     networks:
       - shared-net
 
@@ -57,14 +61,13 @@ services:
     restart: unless-stopped
     environment:
       - SECRET_KEY=${RDGEN_SECRET_KEY}
-      - GHUSER=${GHUSER:-radamath}
+      - GHUSER=${GHUSER:-your-github-username}
       - GHBEARER=${GHBEARER}
       - GENURL=${GENURL:-http://127.0.0.1:8080/}
       - ZIP_PASSWORD=${RDGEN_ZIP_PASSWORD}
       - GHBRANCH=master
       - PROTOCOL=http
       - REPONAME=rdgen
-    # SH_SECRET'ı boş vermeyin; portainer örneğindeki açıklamaya bakın.
     ports:
       - "8080:8000"
     dns:

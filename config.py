@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
@@ -33,4 +34,14 @@ class Config:
         "true",
         "yes",
         "on",
+    )
+
+    # Ters proxy (nginx/traefik) arkasında doğru şema ve oturum çerezi için
+    TRUST_PROXY = os.environ.get("TRUST_PROXY", "0").strip().lower() in ("1", "true", "yes", "on")
+    _pub = (os.environ.get("PUBLIC_BASE_URL") or "").strip().lower()
+    _sec_default = "1" if _pub.startswith("https://") else "0"
+    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", _sec_default).strip() == "1"
+    SESSION_COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "Lax").strip() or "Lax"
+    PERMANENT_SESSION_LIFETIME = timedelta(
+        hours=int(os.environ.get("SESSION_LIFETIME_HOURS", "168"))
     )

@@ -1,12 +1,13 @@
+# Örnek stack — gerçek IP / şifreleri .env ile verin; bu dosyada gizli bilgi tutmayın.
 # shared-net: docker network create shared-net
-# RDGen / fork Secrets: GENURL ve ZIP_PASSWORD fork ile aynı olmalı.
+# RDGen: GENURL genelde panelin kök URL’si (https://panel.example.com/) olmalı; ZIP_PASSWORD fork ile uyumlu.
 
 services:
   hbbs:
     image: rustdesk/rustdesk-server:latest
     container_name: rustdesk-hbbs
-    # İmajda Entrypoint/Cmd null → tam argv gerekir (sadece ["-r", ...] OLMAZ; Created kalır).
-    command: ["hbbs", "-r", "188.132.215.103:21117"]
+    # Dışarıdan erişilen hbbr adresi (genelde sunucu_public_ip:21117)
+    command: ["hbbs", "-r", "${HBBS_RELAY_ADDR:-127.0.0.1:21117}"]
     restart: unless-stopped
     ports:
       - "21115:21115"
@@ -37,7 +38,7 @@ services:
     restart: unless-stopped
     environment:
       SECRET_KEY: "${RDGEN_SECRET_KEY}"
-      GHUSER: "${GHUSER:-radamath}"
+      GHUSER: "${GHUSER:-your-github-username}"
       GHBEARER: "${GHBEARER}"
       GENURL: "${GENURL:-https://example.com/}"
       ZIP_PASSWORD: "${RDGEN_ZIP_PASSWORD}"
@@ -70,6 +71,10 @@ services:
       ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
       RDGEN_INTERNAL_URL: "http://rdgen:8000"
+      # HTTPS panel + ters proxy kullanıyorsanız: TRUST_PROXY=1, PUBLIC_BASE_URL=https://...
+      TRUST_PROXY: "${TRUST_PROXY:-0}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-1}"
     depends_on:
       - hbbs
       - rdgen

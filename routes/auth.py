@@ -99,6 +99,7 @@ def admin_login():
         if not totp.verify(totp_code, valid_window=1):
             return jsonify({"error": "Geçersiz 2FA kodu"}), 401
 
+    session.permanent = True
     session["admin_user_id"] = user.id
     log_audit("admin_login", f"Admin giriş: {username}")
     return jsonify({
