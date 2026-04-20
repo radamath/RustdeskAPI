@@ -1,12 +1,24 @@
-# Örnek stack — gerçek IP / şifreleri .env ile verin; bu dosyada gizli bilgi tutmayın.
-# shared-net: docker network create shared-net
-# RDGen: GENURL genelde panelin kök URL’si (https://panel.example.com/) olmalı; ZIP_PASSWORD fork ile uyumlu.
+# ── Portainer / docker compose stack ─────────────────────────────────
+# Önce ağ:  docker network create shared-net
+#
+# Gizli değerleri bu dosyaya YAZMAYIN. Portainer → Stack → Environment
+# veya .env ile: API_SECRET_KEY, RDGEN_SECRET_KEY, GHBEARER, ADMIN_PASSWORD,
+# RDGEN_ZIP_PASSWORD, HBBS_RELAY_ADDR, PUBLIC_BASE_URL, GENURL, …
+#
+# rdgen BUILD: ./rdgen-patched klasörü compose dosyası ile AYNI dizinde olmalı
+# (RustdeskAPI reposu kökü). Web editor’de sadece YAML yapıştırırsanız build PATLAR.
+# Çözüm: Stack’i Git’ten verin veya sunucuda repo klonlayıp oradan deploy edin.
+#
+# İlk / Dockerfile değişince:
+#   docker compose -f docker-compose.portainer.yml build --no-cache rdgen
+#   docker compose -f docker-compose.portainer.yml up -d
+#
+# GitHub fork Secrets: GENURL ve ZIP_PASSWORD, rdgen ortamı ile aynı olmalı.
 
 services:
   hbbs:
     image: rustdesk/rustdesk-server:latest
     container_name: rustdesk-hbbs
-    # Dışarıdan erişilen hbbr adresi (genelde sunucu_public_ip:21117)
     command: ["hbbs", "-r", "${HBBS_RELAY_ADDR:-127.0.0.1:21117}"]
     restart: unless-stopped
     ports:
@@ -32,22 +44,23 @@ services:
     networks:
       - shared-net
 
-  # rdgen-patched: temp_zips izinleri + views yaması (zip_url için GENURL; rdgen:8000 Actions timeout)
   rdgen:
     build:
       context: ./rdgen-patched
       dockerfile: Dockerfile
     image: rdgen-patched:local
+    container_name: rdgen
     restart: unless-stopped
     environment:
       SECRET_KEY: "${RDGEN_SECRET_KEY}"
-      GHUSER: "${GHUSER:-your-github-username}"
+      GHUSER: "${GHUSER}"
       GHBEARER: "${GHBEARER}"
       GENURL: "${GENURL:-https://example.com/}"
       ZIP_PASSWORD: "${RDGEN_ZIP_PASSWORD}"
-      GHBRANCH: "master"
+      GHBRANCH: "${GHBRANCH:-master}"
       PROTOCOL: "https"
-      REPONAME: "rdgen"
+      REPONAME: "${REPONAME:-rdgen}"
+      DEBUG: "false"
     ports:
       - "8080:8000"
     dns:
@@ -66,8 +79,7 @@ services:
     ports:
       - "21114:21114"
     volumes:
-      # ÖNEMLİ: rdgen_zips / temp_zips'i BURAYA bağlamayın. Sadece rdgen kullanmalı.
-      # İki konteyner aynı volume'u paylaşırsa biri root ile dosya oluşturur, rdgen (user) yazamaz.
+      # rdgen_zips/temp_zips'i BURAYA bağlamayın (çift mount → rdgen PermissionError).
       - rustdesk_data:/rustdesk-data:ro
       - api_data:/app/data
     environment:
@@ -76,13 +88,11 @@ services:
       ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
       RDGEN_INTERNAL_URL: "http://rdgen:8000"
-      # HTTPS panel + ters proxy: TRUST_PROXY=1, PUBLIC_BASE_URL=https://paneliniz/ (RDGen dahili modda GitHub zip URL’si için)
-      TRUST_PROXY: "${TRUST_PROXY:-0}"
+      TRUST_PROXY: "${TRUST_PROXY:-1}"
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
-      # zip_url Host düzeltmesi: PUBLIC_BASE_URL yoksa rdgen ile aynı GENURL kullanılabilir
       GENURL: "${GENURL:-}"
       SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-1}"
-      # Tarayıcı önbelleği: kod güncellemesinden sonra artırın (örn. 14, 15)
+      SESSION_COOKIE_SAMESITE: "${SESSION_COOKIE_SAMESITE:-Lax}"
       STATIC_ASSET_VERSION: "${STATIC_ASSET_VERSION:-15}"
     depends_on:
       - hbbs
