@@ -28,6 +28,40 @@ RE_CHECK_FILE = re.compile(
 RE_PAGE_TITLE = re.compile(r"<title>(.*?)</title>", re.IGNORECASE)
 
 
+def _rdgen_upstream_error_message(resp, base_url: str) -> str:
+    """RDGen JSON veya Django HTML hata sayfasını panelde okunur metne çevirir."""
+    status = resp.status_code
+    raw = (resp.text or "").strip()
+    ct = (resp.headers.get("Content-Type") or "").lower()
+
+    if "application/json" in ct and raw:
+        try:
+            j = resp.json()
+            msg = j.get("error") or j.get("message") or j.get("detail")
+            if msg is not None and str(msg) and "<" not in str(msg)[:80]:
+                return f"RDGen yanıtı ({status}): {msg}"
+        except Exception:
+            pass
+
+    low = raw.lower()
+    if (
+        "text/html" in ct
+        or low.startswith("<!doctype")
+        or "<title>" in low
+        or "server error" in low
+    ):
+        return (
+            f"RDGen içinde sunucu hatası (HTTP {status}). "
+            "Bu hata RustdeskAPI’den değil, RDGen (Django) konteynerindendir. "
+            "Sunucuda şu komutla ayrıntıya bakın: docker logs rdgen --tail 200 "
+            "Sık nedenler: GHBEARER süresi/yetkisi, GitHub API limiti, GENURL’nin panel URL’siyle "
+            "uyumsuzluğu, çok büyük logo/ikon (base64), veya eksik ortam değişkeni."
+        )
+
+    snippet = raw.replace("\n", " ")[:400]
+    return f"RDGen yanıtı ({status}): {snippet or 'boş gövde'}"
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def _read_public_key():
@@ -289,16 +323,21 @@ def start_build():
         }), 502
 
     if resp.status_code < 200 or resp.status_code >= 300:
-        detail = ""
+        msg = _rdgen_upstream_error_message(resp, base_url)
         try:
-            j = resp.json()
-            detail = j.get("error") or j.get("message") or str(j)
+            current_app.logger.warning(
+                "RDGen /generator HTTP %s %s — %s",
+                resp.status_code,
+                base_url,
+                (resp.text or "")[:2500],
+            )
         except Exception:
-            detail = (resp.text or "")[:800]
+            pass
         return jsonify(
             {
-                "error": f"RDGen hatası (HTTP {resp.status_code}): {detail or 'yanıt gövdesi yok'}",
+                "error": msg,
                 "upstream": base_url,
+                "upstream_status": resp.status_code,
             }
         ), 502
 
