@@ -5,6 +5,7 @@ Custom Client – talks to rdgen.crayoneater.org to build branded RustDesk
                clients with embedded server config, logo, and company name.
 """
 
+import base64
 import os
 import re
 import textwrap
@@ -52,10 +53,10 @@ def _rdgen_upstream_error_message(resp, base_url: str) -> str:
     ):
         return (
             f"RDGen içinde sunucu hatası (HTTP {status}). "
-            "Bu hata RustdeskAPI’den değil, RDGen (Django) konteynerindendir. "
-            "Sunucuda şu komutla ayrıntıya bakın: docker logs rdgen --tail 200 "
-            "Sık nedenler: GHBEARER süresi/yetkisi, GitHub API limiti, GENURL’nin panel URL’siyle "
-            "uyumsuzluğu, çok büyük logo/ikon (base64), veya eksik ortam değişkeni."
+            "Sunucuda: docker logs rdgen --tail 200 "
+            "Logda 'failed to get logo/icon' görüyorsanız: Client Dağıtımı’nda PNG kullanın, "
+            "çok büyük dosya yüklemeyin veya logo/ikonu silip kaydedip tekrar deneyin. "
+            "Diğer sık nedenler: GHBEARER, GENURL uyumu, GitHub limiti."
         )
 
     snippet = raw.replace("\n", " ")[:400]
@@ -63,6 +64,49 @@ def _rdgen_upstream_error_message(resp, base_url: str) -> str:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
+def _rdgen_image_magic_ok(data: bytes) -> bool:
+    if len(data) < 24:
+        return False
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return True
+    if data[:2] == b"\xff\xd8":
+        return True
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return True
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return True
+    return False
+
+
+def _normalize_rdgen_image_b64(raw: str) -> str:
+    """
+    RDGen bazen bozuk base64'te 500 verir (log: failed to get logo/icon).
+    Geçerli görüntü değilse boş döner — RDGen varsayılan ikon kullanır.
+    """
+    if not raw or not isinstance(raw, str):
+        return ""
+    s = raw.strip()
+    if not s:
+        return ""
+    low = s.lower()
+    if "base64," in low:
+        i = low.rfind("base64,")
+        s = s[i + 7 :]
+    s = re.sub(r"\s+", "", s)
+    if len(s) > 6_000_000:
+        return ""
+    try:
+        pad = (-len(s)) % 4
+        if pad:
+            s += "=" * pad
+        data = base64.b64decode(s, validate=False)
+    except Exception:
+        return ""
+    if not _rdgen_image_magic_ok(data):
+        return ""
+    return base64.b64encode(data).decode("ascii")
+
 
 def _read_public_key():
     from flask import current_app
@@ -139,6 +183,17 @@ def _build_rdgen_json(cfg, platform, version):
     """Build the JSON payload that rdgen expects as form-data POST."""
     exename = cfg.get("exename", "").strip() or "RustDesk"
     appname = cfg.get("appname", "").strip() or exename
+    raw_icon = cfg.get("iconbase64", "") or ""
+    raw_logo = cfg.get("logobase64", "") or ""
+    icon_b64 = _normalize_rdgen_image_b64(raw_icon)
+    logo_b64 = _normalize_rdgen_image_b64(raw_logo)
+    try:
+        if raw_icon.strip() and not icon_b64:
+            current_app.logger.warning("deploy: ikon base64 geçersiz veya desteklenmeyen format, RDGen varsayılan kullanacak")
+        if raw_logo.strip() and not logo_b64:
+            current_app.logger.warning("deploy: logo base64 geçersiz veya desteklenmeyen format, RDGen varsayılan kullanacak")
+    except Exception:
+        pass
     payload = {
         "platform": platform,
         "version": version,
@@ -157,8 +212,8 @@ def _build_rdgen_json(cfg, platform, version):
         "compname": cfg.get("compname", ""),
         "passApproveMode": "password-click",
         "permanentPassword": "",
-        "iconbase64": cfg.get("iconbase64", ""),
-        "logobase64": cfg.get("logobase64", ""),
+        "iconbase64": icon_b64,
+        "logobase64": logo_b64,
         "privacybase64": "",
         "theme": "system",
         "themeDorO": "default",
