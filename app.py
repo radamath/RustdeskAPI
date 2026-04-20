@@ -1,10 +1,10 @@
 import os
 
-from flask import Flask, send_from_directory
+from flask import Flask, make_response, send_from_directory
 from flask_cors import CORS
 
 from config import Config
-from models import AdminUser, db
+from models import AdminUser, ConnectionLog, db
 
 
 def create_app():
@@ -25,13 +25,17 @@ def create_app():
     with app.app_context():
         db.create_all()
         _migrate_schema()
+        _migrate_connection_peer_swap_once()
         _ensure_admin(app)
 
     @app.route("/")
     @app.route("/admin")
     @app.route("/admin/<path:path>")
     def serve_spa(**kwargs):
-        return send_from_directory("templates", "index.html")
+        resp = make_response(send_from_directory("templates", "index.html"))
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        return resp
 
     return app
 
@@ -68,6 +72,26 @@ def _migrate_schema():
         pass
     conn.commit()
     conn.close()
+
+
+def _migrate_connection_peer_swap_once():
+    """Eski connection_log satırlarında Kaynak/Hedef bir kereliğine yer değiştirir (RustDesk id/peer tersliği)."""
+    from config import DATA_DIR, Config
+
+    if not getattr(Config, "CONN_AUDIT_PEER_SWAP", True):
+        return
+    flag = os.path.join(DATA_DIR, ".conn_audit_peer_swap_migrated_v1")
+    if os.path.isfile(flag):
+        return
+    try:
+        for row in ConnectionLog.query.all():
+            a, b = row.from_peer or "", row.to_peer or ""
+            row.from_peer, row.to_peer = b, a
+        db.session.commit()
+        with open(flag, "w", encoding="utf-8") as f:
+            f.write("1")
+    except Exception:
+        db.session.rollback()
 
 
 def _ensure_admin(app):

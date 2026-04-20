@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
 
+from config import Config
+
 from models import (
     AddressBook, ConnectionLog, FileAudit, Heartbeat, PeerTag,
     RustdeskUser, UserToken, db,
@@ -534,10 +536,16 @@ def audit_conn():
     else:
         to_peer = str(peer_field) if peer_field else ""
 
+    fp = str(from_peer or "").strip()
+    tp = str(to_peer or "").strip()
+    # RustDesk audit: id / peer sırası paneldeki Kaynak (bağlanan) / Hedef ile genelde terstir.
+    if Config.CONN_AUDIT_PEER_SWAP:
+        fp, tp = tp, fp
+
     log = ConnectionLog(
         conn_id=str(data.get("conn_id", "")),
-        from_peer=str(from_peer),
-        to_peer=str(to_peer),
+        from_peer=fp,
+        to_peer=tp,
         action=data.get("action", "connect"),
         ip=data.get("ip", request.remote_addr or ""),
         session_id=str(data.get("session_id", data.get("uuid", ""))),

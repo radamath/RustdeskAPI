@@ -26,3 +26,11 @@ class Config:
 
     # Ters proxy arkasında doğru indirme URL'leri için (örn. https://panel.example.com)
     PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+
+    # RustDesk /audit/conn gövdesindeki id ↔ peer alanları Kaynak/Hedef ile ters; True iken kayıtta yer değiştirir.
+    CONN_AUDIT_PEER_SWAP = os.environ.get("CONN_AUDIT_PEER_SWAP", "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
