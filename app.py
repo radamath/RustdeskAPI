@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, make_response, send_from_directory
+from flask import Flask, make_response, render_template, request, send_from_directory
 from flask_cors import CORS
 
 from config import Config
@@ -33,11 +33,19 @@ def create_app():
         _migrate_connection_peer_swap_once()
         _ensure_admin(app)
 
+    @app.after_request
+    def _static_no_cache(resp):
+        if request.path.startswith("/static/"):
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            resp.headers["Pragma"] = "no-cache"
+        return resp
+
     @app.route("/")
     @app.route("/admin")
     @app.route("/admin/<path:path>")
     def serve_spa(**kwargs):
-        resp = make_response(send_from_directory("templates", "index.html"))
+        ver = getattr(Config, "STATIC_ASSET_VERSION", "12")
+        resp = make_response(render_template("index.html", asset_version=ver))
         resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         resp.headers["Pragma"] = "no-cache"
         return resp

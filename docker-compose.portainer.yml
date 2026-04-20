@@ -75,6 +75,8 @@ services:
       TRUST_PROXY: "${TRUST_PROXY:-0}"
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
       SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-1}"
+      # Tarayıcı önbelleği: kod güncellemesinden sonra artırın (örn. 14, 15)
+      STATIC_ASSET_VERSION: "${STATIC_ASSET_VERSION:-13}"
     depends_on:
       - hbbs
       - rdgen
