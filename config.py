@@ -46,5 +46,5 @@ class Config:
         hours=int(os.environ.get("SESSION_LIFETIME_HOURS", "168"))
     )
 
-    # Panel JS/CSS önbellek kırma; her dağıtımda artırın veya ortamda STATIC_ASSET_VERSION=14 verin
-    STATIC_ASSET_VERSION = (os.environ.get("STATIC_ASSET_VERSION") or "13").strip() or "13"
+    # Panel JS/CSS önbellek kırma; her dağıtımda artırın veya ortamda STATIC_ASSET_VERSION=15 verin
+    STATIC_ASSET_VERSION = (os.environ.get("STATIC_ASSET_VERSION") or "14").strip() or "14"

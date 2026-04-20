@@ -1277,7 +1277,13 @@ Pages.deploy = async (el) => {
     // ── Build section ──
     const buildCard = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6' });
     buildCard.innerHTML = `
-      <h2 class="text-lg font-semibold text-white mb-4">Client Build</h2>
+      <h2 class="text-lg font-semibold text-white mb-2">Client Build</h2>
+      <p class="text-xs text-slate-400 mb-4 border border-slate-700/80 rounded-lg p-3 bg-slate-900/40 leading-relaxed">
+        <span class="text-slate-300 font-medium">GitHub Actions:</span> Derleme bu sunucuda bitmez; RDGen bir
+        <strong>workflow</strong> tetikler (logda <code class="text-slate-500">workflow_run_id</code> / <code class="text-slate-500">html_url</code> görünür).
+        İlerlemeyi <strong>GitHub → radamath/rdgen → Actions</strong> üzerinden izleyin. Self-hosted runner açık ve işi alıyor olmalı; ilk / önbelleksiz derleme <strong>1–2+ saat</strong> sürebilir.
+        <br><span class="text-slate-500 mt-1 inline-block">Loglardaki <code>wp-includes</code>, <code>xmlrpc</code>, <code>/443</code> istekleri internet taramasıdır; build ile ilgisizdir. RDGen 8080’i mümkünse sadece iç ağa veya kısıtlı proxy ile açın.</span>
+      </p>
       <div class="flex flex-wrap gap-4 items-end mb-4">
         <div>
           <label class="block text-sm text-slate-400 mb-1">Platform</label>
@@ -1310,7 +1316,7 @@ Pages.deploy = async (el) => {
         <div class="w-full bg-slate-700 rounded-full h-2">
           <div id="rc-progress-bar" class="bg-blue-500 h-2 rounded-full transition-all duration-500" style="width: 5%"></div>
         </div>
-        <p class="text-xs text-slate-500 mt-2">Build süresi: ~30-45 dakika. Bu sayfayı açık tutun.</p>
+        <p class="text-xs text-slate-500 mt-2">Tahmini süre: 30 dk – 2+ saat (GitHub kuyruğu ve önbelleğe bağlı). Bu sayfayı açık tutun veya Actions’tan takip edin.</p>
       </div>
       <div id="rc-build-error" class="hidden mt-3 bg-red-900/30 border border-red-700/50 rounded-lg p-3 text-sm text-red-300"></div>
     `;

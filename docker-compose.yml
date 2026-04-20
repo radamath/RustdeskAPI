@@ -47,7 +47,7 @@ services:
       - RDGEN_INTERNAL_URL=http://rdgen:8000
       - TRUST_PROXY=${TRUST_PROXY:-0}
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
-      - STATIC_ASSET_VERSION=${STATIC_ASSET_VERSION:-13}
+      - STATIC_ASSET_VERSION=${STATIC_ASSET_VERSION:-14}
     depends_on:
       - hbbs
       - rdgen
