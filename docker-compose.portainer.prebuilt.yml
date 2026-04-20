@@ -1,12 +1,17 @@
-# Portainer Web Editor ile uyumlu: rdgen için BUILD YOK (500 hatasının ana nedeni buydu).
+# ════════════════════════════════════════════════════════════════════
+# Portainer WEB EDITOR ile deploy: BU DOSYAYI kullanın.
 #
-# Önce SSH ile sunucuda (RustdeskAPI repo kökünde, rdgen-patched klasörü varken):
+# "build: / context: ./rdgen-patched" OLAN YAML'ı Web Editor'de ASLA deploy ETMEYİN.
+# Portainer stack dosyasını /data/compose/... altında tutar; orada rdgen-patched
+# klasörü YOKTUR → build adımı patlar → genelde HTTP 500. İmajı SSH'ta build
+# etmiş olman bu hatayı düzeltmez; Web Editor yine yanlış dizinde build dener.
+#
+# Önce SSH (repo kökünde):
 #   docker build -t rdgen-patched:local -f rdgen-patched/Dockerfile rdgen-patched
 #
-# Sonra bu dosyayı Portainer'da stack olarak yapıştır.
-# Ortam değişkenlerini Portainer → Stack → Environment ile verin (aşağıdaki ${...}).
-#
+# Sonra bu dosyayı yapıştır. ${...} için: Stack → Environment (GHBEARER, şifreler, vb.)
 # shared-net: docker network create shared-net
+# ════════════════════════════════════════════════════════════════════
 
 services:
   hbbs:
