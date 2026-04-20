@@ -1188,16 +1188,18 @@ Pages.deploy = async (el) => {
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div>
           <label class="block text-sm text-slate-400 mb-1">Uygulama İkonu (PNG, 256x256)</label>
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2 flex-wrap">
             <input type="file" id="rc-icon-file" accept=".png" class="text-sm text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-sm file:bg-slate-700 file:text-slate-300 hover:file:bg-slate-600">
-            <div id="rc-icon-preview" class="w-10 h-10 rounded bg-slate-700 flex items-center justify-center overflow-hidden">${cfg.iconbase64 ? '<img src="data:image/png;base64,' + cfg.iconbase64 + '" class="w-full h-full object-contain">' : '<span class="text-slate-500 text-xs">Yok</span>'}</div>
+            <button type="button" id="rc-icon-clear" class="text-sm px-2 py-1 rounded border border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-red-300" title="Kayıtlı ikonu sil">Kaldır</button>
+            <div id="rc-icon-preview" class="w-10 h-10 shrink-0 rounded bg-slate-700 flex items-center justify-center overflow-hidden">${cfg.iconbase64 ? '<img src="data:image/png;base64,' + cfg.iconbase64 + '" class="w-full h-full object-contain">' : '<span class="text-slate-500 text-xs">Yok</span>'}</div>
           </div>
         </div>
         <div>
           <label class="block text-sm text-slate-400 mb-1">Uygulama Logosu (PNG)</label>
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2 flex-wrap">
             <input type="file" id="rc-logo-file" accept=".png" class="text-sm text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-sm file:bg-slate-700 file:text-slate-300 hover:file:bg-slate-600">
-            <div id="rc-logo-preview" class="w-10 h-10 rounded bg-slate-700 flex items-center justify-center overflow-hidden">${cfg.logobase64 ? '<img src="data:image/png;base64,' + cfg.logobase64 + '" class="w-full h-full object-contain">' : '<span class="text-slate-500 text-xs">Yok</span>'}</div>
+            <button type="button" id="rc-logo-clear" class="text-sm px-2 py-1 rounded border border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-red-300" title="Kayıtlı logoyu sil">Kaldır</button>
+            <div id="rc-logo-preview" class="w-10 h-10 shrink-0 rounded bg-slate-700 flex items-center justify-center overflow-hidden">${cfg.logobase64 ? '<img src="data:image/png;base64,' + cfg.logobase64 + '" class="w-full h-full object-contain">' : '<span class="text-slate-500 text-xs">Yok</span>'}</div>
           </div>
         </div>
       </div>
@@ -1224,6 +1226,21 @@ Pages.deploy = async (el) => {
     }
     handleFileInput('#rc-icon-file', '#rc-icon-preview', v => { iconB64 = v; });
     handleFileInput('#rc-logo-file', '#rc-logo-preview', v => { logoB64 = v; });
+
+    function clearIcon() {
+      iconB64 = '';
+      const inp = card.querySelector('#rc-icon-file');
+      if (inp) inp.value = '';
+      card.querySelector('#rc-icon-preview').innerHTML = '<span class="text-slate-500 text-xs">Yok</span>';
+    }
+    function clearLogo() {
+      logoB64 = '';
+      const inp = card.querySelector('#rc-logo-file');
+      if (inp) inp.value = '';
+      card.querySelector('#rc-logo-preview').innerHTML = '<span class="text-slate-500 text-xs">Yok</span>';
+    }
+    card.querySelector('#rc-icon-clear').onclick = clearIcon;
+    card.querySelector('#rc-logo-clear').onclick = clearLogo;
 
     if (!cfg.rdgen_internal) {
       const guidePanel = card.querySelector('#rc-rdgen-guide');
