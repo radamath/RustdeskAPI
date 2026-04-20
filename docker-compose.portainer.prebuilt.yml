@@ -1,17 +1,26 @@
-# ════════════════════════════════════════════════════════════════════
-# Portainer WEB EDITOR ile deploy: BU DOSYAYI kullanın.
+# ═══════════════════════════════════════════════════════════════════
+# Portainer (Web Editor) — BU DOSYAYI kullanın. rdgen için BUILD SATIRI YOK.
+# "build: context: ./rdgen-patched" Web Editor deploy'da çoğu zaman 500 verir
+# (stack dizininde o klasör yoktur). İmajı önce SSH ile üretin:
 #
-# "build: / context: ./rdgen-patched" OLAN YAML'ı Web Editor'de ASLA deploy ETMEYİN.
-# Portainer stack dosyasını /data/compose/... altında tutar; orada rdgen-patched
-# klasörü YOKTUR → build adımı patlar → genelde HTTP 500. İmajı SSH'ta build
-# etmiş olman bu hatayı düzeltmez; Web Editor yine yanlış dizinde build dener.
-#
-# Önce SSH (repo kökünde):
+#   cd /opt/RustdeskAPI   # klonladığınız repo kökü
 #   docker build -t rdgen-patched:local -f rdgen-patched/Dockerfile rdgen-patched
 #
-# Sonra bu dosyayı yapıştır. ${...} için: Stack → Environment (GHBEARER, şifreler, vb.)
 # shared-net: docker network create shared-net
-# ════════════════════════════════════════════════════════════════════
+#
+# Portainer → Stack → Environment (aynı isimlerle):
+#   GHBEARER              GitHub fine-grained PAT (rdgen)
+#   RDGEN_SECRET_KEY      Django secret (rdgen)
+#   RDGEN_ZIP_PASSWORD    fork’taki ZIP_PASSWORD ile aynı
+#   API_SECRET_KEY        Flask SECRET_KEY (rustdesk-api)
+#   ADMIN_PASSWORD        panel şifresi
+#   GENURL                https://rustclient.alpaycatal.com/  (fork Secret ile aynı)
+#   PUBLIC_BASE_URL       https://rustclient.alpaycatal.com   (sonda / olmadan da olur)
+#   GHUSER                radamath
+#   ADMIN_USERNAME        alpaycatal
+#
+# GitHub fork Secrets: GENURL ve ZIP_PASSWORD bu ortamla uyumlu olmalı.
+# ═══════════════════════════════════════════════════════════════════
 
 services:
   hbbs:
@@ -48,7 +57,7 @@ services:
     restart: unless-stopped
     environment:
       SECRET_KEY: "${RDGEN_SECRET_KEY}"
-      GHUSER: "${GHUSER}"
+      GHUSER: "${GHUSER:-radamath}"
       GHBEARER: "${GHBEARER}"
       GENURL: "${GENURL:-https://rustclient.alpaycatal.com/}"
       ZIP_PASSWORD: "${RDGEN_ZIP_PASSWORD}"
@@ -79,7 +88,7 @@ services:
     environment:
       SECRET_KEY: "${API_SECRET_KEY}"
       RUSTDESK_DB: "/rustdesk-data/db_v2.sqlite3"
-      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-alpaycatal}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
       RDGEN_INTERNAL_URL: "http://rdgen:8000"
       TRUST_PROXY: "${TRUST_PROXY:-1}"
