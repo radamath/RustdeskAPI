@@ -145,6 +145,26 @@ function formatDate(iso) {
   return d.toLocaleString('tr-TR');
 }
 
+function formatDuration(sec) {
+  if (sec == null || Number.isNaN(sec) || sec < 0) return '';
+  const s = Math.floor(sec % 60);
+  const m = Math.floor((sec / 60) % 60);
+  const h = Math.floor(sec / 3600);
+  if (h > 0) return `${h} sa ${m} dk ${s} sn`;
+  if (m > 0) return `${m} dk ${s} sn`;
+  return `${s} sn`;
+}
+
+function connectionLogPeerCell(id, name) {
+  const wrap = h('div', { className: 'flex flex-col gap-0.5 min-w-0' });
+  wrap.appendChild(h('span', { className: 'text-white font-mono text-xs break-all' }, id || '—'));
+  wrap.appendChild(h('span', {
+    className: name ? 'text-slate-300 text-xs truncate' : 'text-slate-600 text-xs',
+    title: name || '',
+  }, name || '—'));
+  return wrap;
+}
+
 function pagination(page, total, perPage, onClick) {
   const pages = Math.ceil(total / perPage);
   if (pages <= 1) return document.createDocumentFragment();
@@ -758,15 +778,42 @@ Pages.connectionLogs = async (el) => {
     el.appendChild(searchBar('Peer ID ara...', (v) => { search = v; page = 1; load(); }));
 
     const table = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl overflow-hidden' });
-    table.innerHTML = '<div class="grid grid-cols-5 gap-4 px-5 py-3 border-b border-slate-700 text-xs font-semibold text-slate-400 uppercase tracking-wider"><span>Kaynak</span><span>Hedef</span><span>İşlem</span><span>IP</span><span>Zaman</span></div>';
+    table.innerHTML = '<div class="grid grid-cols-5 gap-4 px-5 py-3 border-b border-slate-700 text-xs font-semibold text-slate-400 uppercase tracking-wider"><span>Kaynak</span><span>Hedef</span><span>Bağlantı</span><span>IP</span><span>Zaman / süre</span></div>';
 
     for (const l of logs) {
-      const row = h('div', { className: 'grid grid-cols-5 gap-4 px-5 py-3 table-row border-b border-slate-700/50 items-center text-sm' });
-      row.appendChild(h('span', { className: 'text-white font-mono' }, l.from_peer));
-      row.appendChild(h('span', { className: 'text-slate-300 font-mono' }, l.to_peer));
-      row.appendChild(h('span', { className: 'badge badge-blue' }, l.action));
-      row.appendChild(h('span', { className: 'text-slate-400' }, l.ip || '-'));
-      row.appendChild(h('span', { className: 'text-slate-400' }, formatDate(l.timestamp)));
+      const row = h('div', { className: 'grid grid-cols-5 gap-4 px-5 py-3 table-row border-b border-slate-700/50 items-start text-sm' });
+      row.appendChild(connectionLogPeerCell(l.from_peer, l.from_name));
+      row.appendChild(connectionLogPeerCell(l.to_peer, l.to_name));
+
+      const actions = h('div', { className: 'flex flex-wrap items-center gap-x-2 gap-y-1' });
+      if (l.has_connect && l.connect_at) {
+        actions.appendChild(h('span', { className: 'badge badge-blue shrink-0' }, 'Bağlandı'));
+        actions.appendChild(h('span', { className: 'text-slate-400 text-xs' }, formatDate(l.connect_at)));
+      }
+      if (l.has_close && l.close_at) {
+        actions.appendChild(h('span', { className: 'badge badge-slate shrink-0' }, 'Kapandı'));
+        actions.appendChild(h('span', { className: 'text-slate-400 text-xs' }, formatDate(l.close_at)));
+      }
+      if (!actions.childNodes.length) {
+        actions.appendChild(h('span', { className: 'text-slate-500 text-xs' }, '—'));
+      }
+      row.appendChild(actions);
+
+      row.appendChild(h('span', { className: 'text-slate-400 break-all' }, l.ip || '-'));
+
+      const mainTs = l.connect_at || l.close_at;
+      const timeSpans = [];
+      if (mainTs) timeSpans.push(h('span', {}, formatDate(mainTs)));
+      if (l.duration_sec != null) {
+        timeSpans.push(h('span', {}, `Süre: ${formatDuration(l.duration_sec)}`));
+      } else if (l.has_connect && !l.has_close) {
+        timeSpans.push(h('span', { className: 'text-slate-500' }, 'Süre: —'));
+      }
+      row.appendChild(h(
+        'div',
+        { className: 'flex flex-col gap-0.5 text-slate-400 text-xs' },
+        ...(timeSpans.length ? timeSpans : [h('span', {}, '—')]),
+      ));
       table.appendChild(row);
     }
     if (!logs.length) {
@@ -1047,6 +1094,64 @@ Pages.deploy = async (el) => {
     const card = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6' });
     card.innerHTML = `
       <h2 class="text-lg font-semibold text-white mb-4">Sunucu & Marka Ayarları</h2>
+      ${cfg.rdgen_internal ? `
+      <div class="mb-4 bg-slate-900/50 border border-slate-600 rounded-lg p-4">
+        <p class="text-sm text-slate-300"><strong>RDGen entegre mod:</strong> Build istekleri bu API konteynerinden Docker ağındaki RDGen servisine gider. İndirme bağlantıları doğrudan bu yönetim paneli üzerinden (admin oturumu ile) verilir; ayrı bir RDGen web adresi açmanız gerekmez.</p>
+        <p class="text-xs text-amber-200/90 mt-2 bg-amber-900/20 border border-amber-800/40 rounded px-2 py-1.5"><strong>Not:</strong> <code class="bg-slate-800 px-1 rounded">http://IP:8080</code> ile RDGen sayfasını tarayıcıda açarsanız konsolda &quot;Cross-Origin-Opener-Policy / untrustworthy origin&quot; uyarısı görülebilir; bu HTTP+düz IP kullanımından kaynaklanır. Özel client oluşturmayı <strong>buradan</strong> (Build Başlat) yapın; doğrudan 8080 kullanmayın. Zorunluysa RDGen için HTTPS + alan adı (Nginx/Caddy) kullanın.</p>
+        <p class="text-xs text-slate-500 mt-2">GitHub Actions&apos;ın derlenmiş dosyayı geri yükleyebilmesi için fork repo <code class="bg-slate-800 px-1 rounded">GENURL</code> değeri hâlâ internetten erişilebilir bir adres olmalı (tercihen HTTPS + alan adı veya Nginx ters proxy).</p>
+        <p class="text-xs text-slate-500 mt-1">Ters proxy kullanıyorsanız sunucuda <code class="bg-slate-800 px-1 rounded">PUBLIC_BASE_URL</code> ortam değişkenini (örn. <code class="bg-slate-800 px-1 rounded">https://panel.example.com</code>) tanımlayın; böylece indirme linkleri doğru kök adresi kullanır.</p>
+      </div>
+      ` : `
+      <div class="mb-4">
+        <label class="block text-sm text-slate-400 mb-1">RDGen Sunucu URL</label>
+        <div class="flex items-center gap-2">
+          <input id="rc-rdgen-url" class="input flex-1" placeholder="https://rdgen.crayoneater.org" value="${esc(cfg.rdgen_url || '')}">
+          <button id="rc-rdgen-help" class="btn text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 whitespace-nowrap" type="button">Self-Host Rehberi</button>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Boş bırakılırsa varsayılan public instance (rdgen.crayoneater.org) kullanılır.</p>
+      </div>
+      `}
+      <div class="mb-4">
+        <label class="block text-sm text-slate-400 mb-1">Self-Hosted Runner Anahtarı (SH_SECRET)</label>
+        <div class="flex items-center gap-2">
+          <input id="rc-sh-secret" type="password" class="input flex-1" placeholder="Opsiyonel — yalnızca self-hosted runner kullanıyorsanız" value="${esc(cfg.sh_secret || '')}">
+          <button type="button" class="btn text-xs bg-slate-700 hover:bg-slate-600 text-slate-300" onclick="const i=this.previousElementSibling;i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'Göster':'Gizle'">Göster</button>
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Self-hosted GitHub runner kullanıyorsanız runner makinesindeki SH_SECRET değerini buraya girin. Build'ler runner üzerinde çalışır (~5-10 dk).</p>
+      </div>
+      ${!cfg.rdgen_internal ? `
+      <div id="rc-rdgen-guide" class="hidden mb-4 bg-slate-900 border border-slate-600 rounded-lg p-5 text-sm text-slate-300 leading-relaxed">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-white font-semibold">RDGen Self-Host Kurulum Rehberi</h3>
+          <button id="rc-rdgen-guide-close" class="text-slate-500 hover:text-white text-lg">&times;</button>
+        </div>
+        <p class="mb-3">Kendi RDGen sunucunuzu kurarak build'leri bağımsız şekilde tetikleyebilirsiniz. Kurulum adımları:</p>
+        <ol class="list-decimal list-inside space-y-2 mb-3">
+          <li><strong>GitHub Fork:</strong> <a href="https://github.com/bryangerlach/rdgen" target="_blank" class="text-blue-400 underline">bryangerlach/rdgen</a> repo'sunu kendi GitHub hesabınıza fork'layın.</li>
+          <li><strong>GitHub Token:</strong> Settings &rarr; Developer Settings &rarr; Fine-grained Tokens &rarr; Yeni token oluşturun. Sadece fork'ladığınız rdgen repo'sunu seçin, <em>Actions</em> ve <em>Workflows</em> için Read & Write izni verin.</li>
+          <li><strong>GitHub Secrets:</strong> Fork'ladığınız repo &rarr; Settings &rarr; Secrets &rarr; Actions &rarr; İki secret ekleyin:
+            <ul class="list-disc list-inside ml-4 mt-1">
+              <li><code class="bg-slate-800 px-1 rounded">GENURL</code> = RDGen sunucunuzun erişilebilir URL'si (ör: https://rdgen.sizedomain.com)</li>
+              <li><code class="bg-slate-800 px-1 rounded">ZIP_PASSWORD</code> = Rastgele güçlü bir şifre</li>
+            </ul>
+          </li>
+          <li><strong>Actions Aktif:</strong> Fork repo &rarr; Actions sekmesi &rarr; yeşil "I understand, enable Actions" butonuna tıklayın.</li>
+          <li><strong>Docker Compose:</strong> docker-compose.yml dosyanızdaki <code class="bg-slate-800 px-1 rounded">rdgen</code> servisinin environment değişkenlerini doldurun (GHUSER, GHBEARER, ZIP_PASSWORD, GENURL).</li>
+          <li><strong>Başlatın:</strong> <code class="bg-slate-800 px-1 rounded">docker compose up -d rdgen</code></li>
+        </ol>
+        <div class="bg-slate-800 border border-slate-700 rounded p-3 mb-3">
+          <p class="text-xs text-slate-400 mb-2 font-semibold">Build Süresini Hızlandırma (Opsiyonel)</p>
+          <p class="text-xs text-slate-400">Build'ler GitHub Actions üzerinde çalışır (~30-45 dk). Hızlandırmak için güçlü bir Windows makinede <strong>self-hosted GitHub runner</strong> kurabilirsiniz:</p>
+          <ol class="list-decimal list-inside text-xs text-slate-400 mt-1 space-y-1">
+            <li>Fork repo &rarr; Settings &rarr; Actions &rarr; Runners &rarr; "New self-hosted runner"</li>
+            <li>Runner'ı Windows makineye kurun (RustDesk build ortamı hazır olmalı)</li>
+            <li>Makineye <code class="bg-slate-700 px-1 rounded">SH_SECRET</code> environment variable tanımlayın</li>
+            <li>Sonraki build'ler cache sayesinde <strong>~5-10 dk</strong>'ya düşebilir</li>
+          </ol>
+        </div>
+        <p class="text-xs text-slate-500">Detaylı bilgi: <a href="https://github.com/bryangerlach/rdgen/blob/master/setup.md" target="_blank" class="text-blue-400 underline">setup.md</a></p>
+      </div>
+      ` : ''}
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <div>
           <label class="block text-sm text-slate-400 mb-1">Sunucu Adresi *</label>
@@ -1119,8 +1224,18 @@ Pages.deploy = async (el) => {
     handleFileInput('#rc-icon-file', '#rc-icon-preview', v => { iconB64 = v; });
     handleFileInput('#rc-logo-file', '#rc-logo-preview', v => { logoB64 = v; });
 
+    if (!cfg.rdgen_internal) {
+      const guidePanel = card.querySelector('#rc-rdgen-guide');
+      const helpBtn = card.querySelector('#rc-rdgen-help');
+      if (guidePanel && helpBtn) {
+        helpBtn.onclick = () => guidePanel.classList.toggle('hidden');
+        card.querySelector('#rc-rdgen-guide-close').onclick = () => guidePanel.classList.add('hidden');
+      }
+    }
+
     card.querySelector('#rc-save').onclick = async () => {
       const data = {
+        sh_secret: card.querySelector('#rc-sh-secret').value.trim(),
         host: card.querySelector('#rc-host').value.trim(),
         api: card.querySelector('#rc-api').value.trim(),
         relay: card.querySelector('#rc-relay').value.trim(),
@@ -1130,6 +1245,10 @@ Pages.deploy = async (el) => {
         iconbase64: iconB64,
         logobase64: logoB64,
       };
+      if (!cfg.rdgen_internal) {
+        const ru = card.querySelector('#rc-rdgen-url');
+        if (ru) data.rdgen_url = ru.value.trim();
+      }
       await API.updateDeployConfig(data);
       Object.assign(cfg, data);
       const ok = card.querySelector('#rc-save-ok');

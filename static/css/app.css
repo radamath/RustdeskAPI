@@ -57,6 +57,7 @@ body {
 .badge-red { background: rgba(239,68,68,0.15); color: #f87171; }
 .badge-blue { background: rgba(59,130,246,0.15); color: #60a5fa; }
 .badge-yellow { background: rgba(234,179,8,0.15); color: #facc15; }
+.badge-slate { background: rgba(148,163,184,0.12); color: #94a3b8; }
 
 .btn {
   display: inline-flex;
