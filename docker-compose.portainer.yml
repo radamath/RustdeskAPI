@@ -32,9 +32,12 @@ services:
     networks:
       - shared-net
 
+  # rdgen-patched: volume izinleri (temp_zips Permission denied) + apply_patch
   rdgen:
-    image: bryangerlach/rdgen:latest
-    container_name: rdgen
+    build:
+      context: ./rdgen-patched
+      dockerfile: Dockerfile
+    image: rdgen-patched:local
     restart: unless-stopped
     environment:
       SECRET_KEY: "${RDGEN_SECRET_KEY}"

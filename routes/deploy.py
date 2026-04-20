@@ -53,10 +53,12 @@ def _rdgen_upstream_error_message(resp, base_url: str) -> str:
     ):
         return (
             f"RDGen içinde sunucu hatası (HTTP {status}). "
-            "Sunucuda: docker logs rdgen --tail 200 "
-            "Logda 'failed to get logo/icon' görüyorsanız: Client Dağıtımı’nda PNG kullanın, "
-            "çok büyük dosya yüklemeyin veya logo/ikonu silip kaydedip tekrar deneyin. "
-            "Diğer sık nedenler: GHBEARER, GENURL uyumu, GitHub limiti."
+            "Sunucuda: docker logs rdgen --tail 200. "
+            "Logda Permission denied ve temp_zips/*.zip görüyorsanız: rdgen imajını "
+            "repodaki rdgen-patched (entrypoint ile) yeniden build edin; Docker volume "
+            "sahiplik sorunudur. "
+            "failed to get logo/icon sonrası 500 ise önce temp_zips iznini düzeltin. "
+            "Ayrıca: GHBEARER, GENURL, GitHub limiti."
         )
 
     snippet = raw.replace("\n", " ")[:400]
