@@ -774,7 +774,8 @@ Pages.connectionLogs = async (el) => {
 
   function render(logs, total) {
     el.innerHTML = '';
-    el.appendChild(h('h1', { className: 'text-2xl font-bold text-white mb-6' }, 'Bağlantı Logları'));
+    el.appendChild(h('h1', { className: 'text-2xl font-bold text-white mb-2' }, 'Bağlantı Logları'));
+    el.appendChild(h('p', { className: 'text-slate-500 text-xs mb-6' }, 'Her oturum tek satır · süre ve cihaz adları (db_v2 / Heartbeat) · UI v7'));
     el.appendChild(searchBar('Peer ID ara...', (v) => { search = v; page = 1; load(); }));
 
     const table = h('div', { className: 'bg-slate-800 border border-slate-700 rounded-xl overflow-hidden' });

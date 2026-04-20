@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
-from sqlalchemy import String, case, cast, func, or_
+from sqlalchemy import String, and_, case, cast, func, or_
 
 import rustdesk_db
 from models import AuditLog, ConnectionLog, FileAudit, Heartbeat, PeerTag, db
@@ -13,13 +13,13 @@ bp = Blueprint("audit", __name__, url_prefix="/admin/api")
 
 
 def _session_key_expr():
-    """Tek oturum anahtarı: dolu conn_id gruplanır; boşsa her satır kendi başına."""
+    """conn_id → session_id → tekil satır. conn_id yoksa sid: ile aynı oturum birleşir."""
+    cid_set = and_(ConnectionLog.conn_id.isnot(None), ConnectionLog.conn_id != "")
+    sid_set = and_(ConnectionLog.session_id.isnot(None), ConnectionLog.session_id != "")
     return case(
-        (
-            or_(ConnectionLog.conn_id.is_(None), ConnectionLog.conn_id == ""),
-            func.concat("row:", cast(ConnectionLog.id, String)),
-        ),
-        else_=ConnectionLog.conn_id,
+        (cid_set, ConnectionLog.conn_id),
+        (sid_set, func.concat("sid:", ConnectionLog.session_id)),
+        else_=func.concat("row:", cast(ConnectionLog.id, String)),
     )
 
 
@@ -27,11 +27,18 @@ def _action_norm(action: str) -> str:
     return (action or "").strip().lower()
 
 
-def _is_connect(action: str) -> bool:
+def _is_session_start(action: str) -> bool:
+    """Başlangıç zamanı için (new dahil — ayrı satır üretilmez)."""
     a = _action_norm(action)
     if a in ("disconnect",):
         return False
     return a in ("connect", "connection", "reconnect", "new")
+
+
+def _is_connect(action: str) -> bool:
+    """Rozet 'Bağlandı' için: new hariç klasik connect (new sadece sürede kullanılır)."""
+    a = _action_norm(action)
+    return a in ("connect", "connection", "reconnect")
 
 
 def _is_close(action: str) -> bool:
@@ -40,66 +47,130 @@ def _is_close(action: str) -> bool:
 
 
 def _merge_session_rows(logs):
-    """Aynı conn_id için connect / close satırlarını birleştirir (timestamp sıralı liste)."""
+    """Tek oturum satırı; close’ta eksik kalan hedef/kaynak diğer satırlardan tamamlanır."""
     if not logs:
         return None
     logs = sorted(logs, key=lambda x: (x.timestamp is None, x.timestamp or datetime.min))
-    connect_row = None
+
     close_row = None
     for l in logs:
-        if connect_row is None and _is_connect(l.action):
-            connect_row = l
         if _is_close(l.action):
             close_row = l
-    if connect_row is None:
-        connect_row = logs[0]
 
-    from_peer = connect_row.from_peer
-    to_peer = connect_row.to_peer
-    ip = (connect_row.ip or "").strip()
-    started = connect_row.timestamp
+    from_peer, to_peer = "", ""
+    for l in logs:
+        a, b = (l.from_peer or "").strip(), (l.to_peer or "").strip()
+        if a and b:
+            from_peer, to_peer = a, b
+            break
+    if not from_peer or not to_peer:
+        seen = []
+        sset = set()
+        for l in logs:
+            for p in ((l.from_peer or "").strip(), (l.to_peer or "").strip()):
+                if p and p not in sset:
+                    sset.add(p)
+                    seen.append(p)
+        if len(seen) >= 2:
+            if not from_peer:
+                from_peer = seen[0]
+            if not to_peer:
+                for p in seen:
+                    if p != from_peer:
+                        to_peer = p
+                        break
+        elif len(seen) == 1:
+            if not from_peer:
+                from_peer = seen[0]
+            elif not to_peer:
+                to_peer = seen[0]
+
+    start_ts = None
+    start_row_for_ip = None
+    for l in logs:
+        if _is_session_start(l.action) and l.timestamp:
+            if start_ts is None or l.timestamp < start_ts:
+                start_ts = l.timestamp
+                start_row_for_ip = l
+    if start_ts is None:
+        start_ts = logs[0].timestamp
+        start_row_for_ip = logs[0]
+
     ended = close_row.timestamp if close_row else None
-
+    ip = ""
+    if start_row_for_ip:
+        ip = (start_row_for_ip.ip or "").strip()
     if close_row and not ip:
         ip = (close_row.ip or "").strip()
 
     duration_sec = None
-    if started and ended:
-        duration_sec = (ended - started).total_seconds()
+    if start_ts and ended:
+        duration_sec = (ended - start_ts).total_seconds()
         if duration_sec < 0:
             duration_sec = None
 
+    has_real_connect = any(_is_connect(l.action) for l in logs)
+    has_start = any(_is_session_start(l.action) for l in logs)
+
     return {
-        "from_peer": from_peer,
-        "to_peer": to_peer,
-        "connect_at": started.isoformat() if started else None,
+        "from_peer": from_peer or "",
+        "to_peer": to_peer or "",
+        "connect_at": start_ts.isoformat() if start_ts else None,
         "close_at": ended.isoformat() if ended else None,
         "duration_sec": duration_sec,
         "ip": ip or "",
-        "has_connect": any(_is_connect(l.action) for l in logs),
+        "has_connect": has_real_connect or has_start,
         "has_close": close_row is not None,
     }
 
 
+def _peer_id_variants(pid: str) -> list:
+    s = (pid or "").strip()
+    if not s:
+        return []
+    out = [s]
+    if s.isdigit():
+        n = str(int(s))
+        if n != s:
+            out.append(n)
+    return out
+
+
 def _peer_display_names(peer_ids: set):
-    """RustDesk db_v2 hostname, yoksa Heartbeat hostname, yoksa PeerTag alias."""
+    """RustDesk db_v2 hostname, yoksa Heartbeat, yoksa PeerTag. ID baştaki 0 farkını tolere eder."""
     if not peer_ids:
         return {}
-    tags = PeerTag.query.filter(PeerTag.peer_id.in_(peer_ids)).all()
+    all_cands = set()
+    variants = {pid: _peer_id_variants(pid) for pid in peer_ids}
+    for vlist in variants.values():
+        all_cands.update(vlist)
+    all_cands.discard("")
+    tags = PeerTag.query.filter(PeerTag.peer_id.in_(list(all_cands))).all() if all_cands else []
     tag_map = {t.peer_id: (t.alias or "").strip() for t in tags}
-    heartbeats = Heartbeat.query.filter(Heartbeat.id.in_(peer_ids)).all()
+    heartbeats = Heartbeat.query.filter(Heartbeat.id.in_(list(all_cands))).all() if all_cands else []
     hb_map = {h.id: (h.hostname or "").strip() for h in heartbeats if (h.hostname or "").strip()}
     out = {}
     for pid in peer_ids:
         name = ""
-        p = rustdesk_db.get_peer(pid)
-        if p:
-            info = p.get("info") or {}
-            name = (info.get("hostname") or "").strip()
-        if not name:
-            name = hb_map.get(pid) or ""
-        if not name:
-            name = tag_map.get(pid) or ""
+        for cand in variants.get(pid, [pid]):
+            if not cand:
+                continue
+            p = rustdesk_db.get_peer(cand)
+            if p:
+                info = p.get("info") or {}
+                name = (info.get("hostname") or "").strip()
+                if name:
+                    break
+            if not name:
+                hn = hb_map.get(cand, "")
+                if hn:
+                    name = hn
+                    break
+            if not name:
+                al = tag_map.get(cand, "")
+                if al:
+                    name = al
+                    break
         out[pid] = name
     return out
 
@@ -148,6 +219,13 @@ def connection_logs():
         if session_key.startswith("row:"):
             lid = int(session_key[4:])
             logs = ConnectionLog.query.filter_by(id=lid).all()
+        elif session_key.startswith("sid:"):
+            sid = session_key[4:]
+            logs = (
+                ConnectionLog.query.filter_by(session_id=sid)
+                .order_by(ConnectionLog.timestamp.asc())
+                .all()
+            )
         else:
             logs = (
                 ConnectionLog.query.filter_by(conn_id=session_key)
@@ -157,8 +235,10 @@ def connection_logs():
         merged = _merge_session_rows(logs)
         if not merged:
             continue
-        peer_ids.add(merged["from_peer"])
-        peer_ids.add(merged["to_peer"])
+        for k in ("from_peer", "to_peer"):
+            v = (merged.get(k) or "").strip()
+            if v:
+                peer_ids.add(v)
         data.append(merged)
 
     names = _peer_display_names(peer_ids)

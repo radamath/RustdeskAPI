@@ -22,6 +22,52 @@ from routes.auth import (
 bp = Blueprint("api", __name__, url_prefix="/api")
 
 
+def _backfill_audit_endpoints(fp: str, tp: str, conn_id: str, session_id: str) -> tuple[str, str]:
+    """RustDesk bazen close/new satırında karşı peer göndermez; aynı oturumdan tamamla."""
+    fp = (fp or "").strip()
+    tp = (tp or "").strip()
+    if fp and tp:
+        return fp, tp
+    rows = []
+    cid = (conn_id or "").strip()
+    sid = (session_id or "").strip()
+    if cid:
+        rows = (
+            ConnectionLog.query.filter_by(conn_id=cid)
+            .order_by(ConnectionLog.timestamp.asc())
+            .limit(80)
+            .all()
+        )
+    if not rows and sid:
+        rows = (
+            ConnectionLog.query.filter_by(session_id=sid)
+            .order_by(ConnectionLog.timestamp.asc())
+            .limit(80)
+            .all()
+        )
+    seen = []
+    sset = set()
+    for r in rows:
+        for p in ((r.from_peer or "").strip(), (r.to_peer or "").strip()):
+            if p and p not in sset:
+                sset.add(p)
+                seen.append(p)
+    if len(seen) >= 2:
+        if not fp:
+            fp = seen[0]
+        if not tp:
+            for p in seen:
+                if p != fp:
+                    tp = p
+                    break
+    elif len(seen) == 1:
+        if not fp:
+            fp = seen[0]
+        elif not tp:
+            tp = seen[0]
+    return fp, tp
+
+
 def _inject_server_aliases(peers):
     """Overlay PeerTag aliases onto address-book peers so the RustDesk
     client always sees admin-set names, even after a client push."""
@@ -538,7 +584,10 @@ def audit_conn():
 
     fp = str(from_peer or "").strip()
     tp = str(to_peer or "").strip()
-    # RustDesk audit: id / peer sırası paneldeki Kaynak (bağlanan) / Hedef ile genelde terstir.
+    cid = str(data.get("conn_id", "") or "").strip()
+    sid = str(data.get("session_id", data.get("uuid", "")) or "").strip()
+    fp, tp = _backfill_audit_endpoints(fp, tp, cid, sid)
+    # RustDesk audit: id / peer sırası paneldeki Kaynak / Hedef ile genelde terstir.
     if Config.CONN_AUDIT_PEER_SWAP:
         fp, tp = tp, fp
 
